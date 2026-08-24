@@ -127,15 +127,19 @@ console.log('='.repeat(78));
 }
 
 // -------------------------------------------- participant-facing read path
+// These two are the read path TestRunner will use. They assert only that the
+// path is READABLE, not a row count — the number of active items depends on
+// whether the item bank is populated, and this suite must give the same verdict
+// whether or not verify_security.sql's fixtures happen to be loaded.
 {
   const r = await probe('GET', '/rest/v1/public_items?select=item_code,domain,response_format');
-  record('anon GET /rest/v1/public_items (INTENDED participant read path — 6 active items exist)',
-    'HTTP 200 with 6 rows', line(r), r.status === 200 && r.rowCount === 6);
+  record('anon GET /rest/v1/public_items (INTENDED participant read path)',
+    'HTTP 200 (readable; row count depends on the item bank)', line(r), r.status === 200);
 }
 {
   const r = await probe('GET', '/rest/v1/public_item_options?select=item_id,option_key,option_text');
-  record('anon GET /rest/v1/public_item_options (INTENDED participant read path — 10 rows exist)',
-    'HTTP 200 with 10 rows', line(r), r.status === 200 && r.rowCount === 10);
+  record('anon GET /rest/v1/public_item_options (INTENDED participant read path)',
+    'HTTP 200 (readable; row count depends on the item bank)', line(r), r.status === 200);
 }
 
 // --------------------------------------------------------------- export paths

@@ -155,8 +155,8 @@ misleading.
 | `POST /rest/v1/rpc/submit_session` for an unowned session | rejected | `HTTP 400 · P0001 Session not found, not owned by caller, or already submitted` | Pass |
 | `POST /storage/v1/object/badsq-audio/<session>/anon.webm` | denied | `HTTP 400 · 403 Unauthorized, "new row violates row-level security policy"` | Pass |
 | `POST /storage/v1/object/list/badsq-audio` | denied or empty | `HTTP 200, 0 rows` | Pass |
-| `GET /rest/v1/public_items` (intended participant read path, 6 items) | HTTP 200, 6 rows | `HTTP 401 · 42501 permission denied for table items` | **Fail (F1)** |
-| `GET /rest/v1/public_item_options` (intended read path, 10 rows) | HTTP 200, 10 rows | `HTTP 401 · 42501 permission denied for table item_options` | **Fail (F1)** |
+| `GET /rest/v1/public_items` (intended participant read path) | HTTP 200, readable | `HTTP 401 · 42501 permission denied for table items` | **Fail (F1)** |
+| `GET /rest/v1/public_item_options` (intended read path) | HTTP 200, readable | `HTTP 401 · 42501 permission denied for table item_options` | **Fail (F1)** |
 | `POST /rest/v1/ml_snapshots` (inject a row) | denied | **`HTTP 201`** | **Fail (F3)** |
 | `GET /rest/v1/ml_snapshots` (read the canary back) | denied or 0 rows | **`HTTP 200, 1 row` — full row body returned** | **Fail (F3)** |
 | `DELETE /rest/v1/ml_snapshots` (destroy snapshot rows) | denied | **`HTTP 204`** | **Fail (F3)** |
