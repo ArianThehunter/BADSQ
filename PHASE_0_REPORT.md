@@ -564,7 +564,11 @@ behaviour is identical. I am noting it rather than leaving it implicit.
 ## 10. State of the repo
 
 - **Branch:** `main`
-- **Commit:** `73781ed756ff0d338b67b11c08e1ef522a4dc3a9` — "Phase 0: scaffold, migrations, and RLS verification"
+- **Commits:** Phase 0 was delivered in three commits on `main`. The substantive one is
+  `73781ed` — "Phase 0: scaffold, migrations, and RLS verification"; the two that follow are
+  bookkeeping (recording this commit hash, and making the HTTP suite's two participant-read-path
+  assertions fixture-independent so it returns the same verdict whether or not the SQL suite's
+  fixtures are loaded). Run `git log --oneline` for the current tip.
 - **Working tree:** clean. 41 tracked files. `.env` present locally but untracked.
 - **Supabase project:** `badsq-platform`, ref `gfxdhqkxetuoetzzrxxq`, region `ap-south-1`, Postgres 17.6, Free plan
 - **Migration state:** 0001, 0002, 0003 all applied. Database contains **no data** — all verification fixtures removed; the `badsq-audio` bucket exists and is empty.
