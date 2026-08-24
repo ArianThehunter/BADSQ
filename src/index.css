@@ -1,0 +1,110 @@
+/*
+ * BADSQ Platform — base styles.
+ *
+ * The @font-face blocks below are self-hosted (public/fonts/), NOT loaded from
+ * Google Fonts. See index.html for why: no third-party requests from a page used
+ * by minors, and offline-tolerant rendering on flaky school internet.
+ *
+ * Noto Sans Bengali is a variable font, so one file serves every weight in its
+ * subset. The unicode-range values are copied verbatim from Google Fonts' own
+ * subset definitions, so the browser only downloads the subsets it actually
+ * needs for the text on screen.
+ */
+
+/* bengali */
+@font-face {
+  font-family: 'Noto Sans Bengali';
+  font-style: normal;
+  font-weight: 400 600;
+  font-stretch: 100%;
+  font-display: swap;
+  src: url('/fonts/noto-sans-bengali-bengali.woff2') format('woff2');
+  unicode-range: U+0951-0952, U+0964-0965, U+0980-09FE, U+1CD0, U+1CD2,
+    U+1CD5-1CD6, U+1CD8, U+1CE1, U+1CEA, U+1CED, U+1CF2, U+1CF5-1CF7,
+    U+200C-200D, U+20B9, U+25CC, U+A8F1;
+}
+
+/* latin-ext */
+@font-face {
+  font-family: 'Noto Sans Bengali';
+  font-style: normal;
+  font-weight: 400 600;
+  font-stretch: 100%;
+  font-display: swap;
+  src: url('/fonts/noto-sans-bengali-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7,
+    U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF,
+    U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+/* latin */
+@font-face {
+  font-family: 'Noto Sans Bengali';
+  font-style: normal;
+  font-weight: 400 600;
+  font-stretch: 100%;
+  font-display: swap;
+  src: url('/fonts/noto-sans-bengali-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+:root {
+  /*
+   * Noto Sans Bengali first and unconditionally: no system-font fallback ahead
+   * of it, because a system fallback is exactly how legacy non-Unicode text
+   * sneaks through looking plausible. `sans-serif` is a last resort only.
+   */
+  --font-bangla: 'Noto Sans Bengali', sans-serif;
+
+  /* WCAG 2.2 SC 2.5.8 floor is 24px; the field protocol targets 44px. */
+  --touch-target-min: 44px;
+
+  --color-bg: #ffffff;
+  --color-fg: #16181d;
+  --color-muted: #5b6270;
+  --color-border: #d6dae2;
+  --color-accent: #1d4ed8;
+
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--color-bg);
+  color: var(--color-fg);
+}
+
+body {
+  font-family: var(--font-bangla);
+  /* Bangla conjuncts and matras need generous line spacing to stay legible. */
+  line-height: 1.7;
+  -webkit-text-size-adjust: 100%;
+  /* Participants tap a lot; never let a double-tap zoom the test surface. */
+  touch-action: manipulation;
+}
+
+#root {
+  min-height: 100dvh;
+}
+
+/* Every interactive control in the test flow must clear the touch-target floor. */
+button,
+[role='button'] {
+  font-family: inherit;
+  font-size: 1rem;
+  min-height: var(--touch-target-min);
+  min-width: var(--touch-target-min);
+}
+
+:focus-visible {
+  outline: 3px solid var(--color-accent);
+  outline-offset: 2px;
+}

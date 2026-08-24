@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="bn">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+
+    <!--
+      PRIVACY: this instrument collects data from 12-14 year old participants.
+      There are deliberately NO analytics, telemetry, or third-party scripts, and
+      no third-party asset requests of any kind. The Bangla webfont below is
+      SELF-HOSTED rather than loaded from Google Fonts, so no participant's IP
+      address is ever disclosed to a third party, and the test still renders
+      correctly on the unreliable school internet the field protocol anticipates.
+    -->
+    <meta name="referrer" content="no-referrer" />
+    <meta name="robots" content="noindex, nofollow" />
+
+    <!--
+      FONT PINNING IS A CORRECTNESS REQUIREMENT HERE, NOT STYLING.
+      The source materials for this project have a known history of legacy
+      non-Unicode Bangla font corruption (Bijoy/SutonnyMJ-style encodings, where
+      bytes are Latin code points that only *look* like Bangla in one specific
+      font). Pinning an explicit Unicode Bangla face means text that renders
+      correctly is genuinely Unicode, and legacy-encoded text renders visibly
+      wrong instead of silently passing review.
+
+      Noto Sans Bengali, SIL Open Font License 1.1 — see public/fonts/README.md.
+      The Bengali subset is preloaded because every stimulus caption needs it on
+      first paint; the Latin subsets are not preloaded.
+    -->
+    <link
+      rel="preload"
+      href="/fonts/noto-sans-bengali-bengali.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin="anonymous"
+    />
+
+    <title>BADSQ — বাংলা ডিসলেক্সিয়া স্ক্রিনিং</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

@@ -1,0 +1,35 @@
+# ---- Dependencies / build ----
+node_modules
+dist
+dist-ssr
+*.local
+
+# ---- Secrets: NEVER commit ----
+# This app handles data from minors. Keys stay out of version control.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# ---- Supabase CLI local state ----
+supabase/.branches
+supabase/.temp
+supabase/.env
+
+# ---- Verification / scratch output ----
+scripts/out/
+*.log
+logs
+
+# ---- Editor / OS ----
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+Thumbs.db
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
