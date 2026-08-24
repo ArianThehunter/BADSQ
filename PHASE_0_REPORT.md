@@ -564,7 +564,8 @@ behaviour is identical. I am noting it rather than leaving it implicit.
 ## 10. State of the repo
 
 - **Branch:** `main`
-- **Commit:** see §10 note below — hash recorded at commit time
+- **Commit:** `73781ed756ff0d338b67b11c08e1ef522a4dc3a9` — "Phase 0: scaffold, migrations, and RLS verification"
+- **Working tree:** clean. 41 tracked files. `.env` present locally but untracked.
 - **Supabase project:** `badsq-platform`, ref `gfxdhqkxetuoetzzrxxq`, region `ap-south-1`, Postgres 17.6, Free plan
 - **Migration state:** 0001, 0002, 0003 all applied. Database contains **no data** — all verification fixtures removed; the `badsq-audio` bucket exists and is empty.
 
