@@ -235,6 +235,36 @@ console.log('='.repeat(78));
   record(`anon list objects in ${BUCKET}`, 'denied or empty', line(r), !listed);
 }
 
+// ------------------------------------------------- migration 0004 surfaces
+{
+  const r = await probe('POST', '/rest/v1/rpc/start_session', { body: '{}' });
+  record('anon POST /rest/v1/rpc/start_session (no user JWT)',
+    'rejected', line(r), r.status >= 400);
+}
+{
+  // The participant read path must never carry the answer key in its body.
+  const r = await probe('GET', '/rest/v1/public_items?select=*');
+  const body = JSON.stringify(r.json || '');
+  const leaked = /correct_answer|is_correct/.test(body);
+  record('anon GET /rest/v1/public_items?select=* body contains no answer-key field',
+    'no correct_answer / is_correct in the payload',
+    `${line(r)}${leaked ? ' <-- ANSWER KEY PRESENT' : ''}`, r.status === 200 && !leaked);
+}
+{
+  // 0004 renamed items.*_audio_url to *_audio_path. The client asks the VIEW for
+  // the new names, so the view must expose them.
+  const r = await probe('GET', '/rest/v1/public_items?select=item_code,instruction_audio_path,stimulus_audio_path');
+  record('anon GET /rest/v1/public_items selecting the renamed audio path columns',
+    'HTTP 200 — view exposes instruction_audio_path / stimulus_audio_path', line(r), r.status === 200);
+}
+{
+  const r = await probe('POST', `/storage/v1/object/list/badsq-item-audio`,
+    { body: JSON.stringify({ prefix: '', limit: 100 }) });
+  const listed = r.status === 200 && Array.isArray(r.json) && r.json.length > 0;
+  record('anon list objects in badsq-item-audio (item audio reveals test content)',
+    'denied or empty', line(r), !listed);
+}
+
 // -------------------------------------------------------------------- auth
 {
   const r = await probe('POST', '/auth/v1/signup', { body: JSON.stringify({}) });

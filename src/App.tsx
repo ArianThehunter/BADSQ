@@ -43,6 +43,7 @@ function Row({ label, state }: { label: string; state: CheckState }) {
 export default function App() {
   const [items, setItems] = useState<CheckState>({ kind: 'pending' });
   const [options, setOptions] = useState<CheckState>({ kind: 'pending' });
+  const [audioCols, setAudioCols] = useState<CheckState>({ kind: 'pending' });
 
   useEffect(() => {
     let cancelled = false;
@@ -67,6 +68,21 @@ export default function App() {
         res.error
           ? { kind: 'fail', detail: `${res.error.code ?? '?'}: ${res.error.message}` }
           : { kind: 'ok', detail: `${res.data?.length ?? 0} option row(s) readable` },
+      );
+
+      // Migration 0004 renamed items.*_audio_url to *_audio_path but never
+      // recreated public_items, so the view still serves the OLD names. Ask for
+      // the new ones and surface the failure rather than hiding it.
+      // Deliberately requests a column the view does not expose, so the runtime
+      // error is visible. See PHASE_0_REPORT.md finding G1.
+      const audio = await supabase
+        .from('public_items')
+        .select('item_code, instruction_audio_path, stimulus_audio_path');
+      if (cancelled) return;
+      setAudioCols(
+        audio.error
+          ? { kind: 'fail', detail: `${audio.error.code ?? '?'}: ${audio.error.message}` }
+          : { kind: 'ok', detail: 'view exposes the renamed audio path columns' },
       );
     })();
 
@@ -108,12 +124,19 @@ export default function App() {
         <ul style={{ listStyle: 'none', padding: 0 }}>
           <Row label="Read the item bank via public_items" state={items} />
           <Row label="Read options via public_item_options" state={options} />
+          <Row label="public_items exposes the renamed *_audio_path columns" state={audioCols} />
         </ul>
         <p style={{ color: 'var(--color-muted)', fontSize: '0.875rem' }}>
-          Both checks are expected to FAIL until finding F1 in PHASE_0_REPORT.md is resolved:
-          migration 0003 revoked SELECT on <code>items</code> from the client roles while its
-          replacement views use <code>security_invoker = on</code>, which defers the base-table
-          privilege check to the caller. No client role can read the item bank through any path.
+          The first two checks were the F1 blocker and are fixed by migration 0004. They read 0
+          rows until the item bank is populated, which is expected — the check is that they return
+          HTTP 200 rather than a permission error.
+        </p>
+        <p style={{ color: 'var(--color-muted)', fontSize: '0.875rem' }}>
+          The third check is expected to FAIL (finding G1 in PHASE_0_REPORT.md): migration 0004
+          renamed <code>items.instruction_audio_url</code> to <code>instruction_audio_path</code>{' '}
+          but never recreated <code>public_items</code>, and a base-column rename does not rename a
+          view&apos;s output column. The participant read path still serves the old names, so
+          TestRunner cannot resolve item audio until the view is recreated.
         </p>
       </section>
     </main>

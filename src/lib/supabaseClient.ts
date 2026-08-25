@@ -76,3 +76,29 @@ export async function currentAuthUid(): Promise<string | null> {
   const { data } = await supabase.auth.getUser();
   return data.user?.id ?? null;
 }
+
+/**
+ * Open a session and get back the participant code.
+ *
+ * The code is issued SERVER-SIDE (migration 0004) and is the join key between
+ * the paper parental-consent form and this anonymous digital session. The
+ * supervising teacher writes it onto the paper form; at submit it becomes
+ * `participants.anonymized_code`. Never generate or override it client-side —
+ * `submit_session()` deliberately ignores any code sent in its payload.
+ *
+ * Show the returned code on screen for transcription. Its alphabet excludes
+ * I, O, 0 and 1 precisely because a person copies it by hand and another person
+ * reads it back.
+ */
+export async function startSession(): Promise<{ sessionId: string; assignedCode: string }> {
+  await ensureAnonymousSession();
+
+  const { data, error } = await supabase.rpc('start_session');
+  if (error) throw new Error(`start_session failed: ${error.message}`);
+
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row?.out_session_id || !row?.out_assigned_code) {
+    throw new Error('start_session returned no session id or code');
+  }
+  return { sessionId: row.out_session_id, assignedCode: row.out_assigned_code };
+}

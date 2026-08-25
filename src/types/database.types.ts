@@ -1,13 +1,15 @@
-// Generated from the live BADSQ schema (migrations 0001 + 0002 + 0003).
+// Generated from the live BADSQ schema (migrations 0001 + 0002 + 0003 + 0004).
 //
 // DO NOT EDIT BY HAND. Regenerate after every migration:
 //   supabase gen types typescript --project-id <ref> > src/types/database.types.ts
 // (or, without the CLI, via the Supabase MCP generate_typescript_types tool)
 //
-// Note for readers: `ml_export_v1.response_latency_ms` below is the OLD output
-// alias. Migration 0003 renamed the base column to response_latency_from_last_ms
-// but the view's output name did not change, and the view never picked up
-// response_latency_from_first_ms. See PHASE_0_REPORT.md, finding F5.
+// READER BEWARE — a real mismatch is visible in these types, not a generation bug:
+//   items.instruction_audio_path / items.stimulus_audio_path   (base table, renamed by 0004)
+//   public_items.instruction_audio_url / .stimulus_audio_url   (participant view, NOT renamed)
+// Migration 0004 renamed the base columns but never recreated public_items, and a
+// base-column rename does not rename a view's output column. The participant read
+// path therefore still serves the old names. See PHASE_0_REPORT.md, finding G1.
 
 export type Json =
   | string
@@ -21,7 +23,7 @@ export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: "14.15"
+    PostgrestVersion: "14.17"
   }
   public: {
     Tables: {
@@ -119,13 +121,14 @@ export type Database = {
       }
       consent_records: {
         Row: {
+          assigned_code: string | null
           consent_date: string
           consent_given: boolean
           digitized_at: string | null
           digitized_by: string | null
           id: string
           paper_form_scan_ref: string | null
-          participant_id: string
+          participant_id: string | null
           q1_doctor_eval: boolean | null
           q1_not_sure: boolean | null
           q1_school_eval: boolean | null
@@ -133,13 +136,14 @@ export type Database = {
           q3_family_history: string | null
         }
         Insert: {
+          assigned_code?: string | null
           consent_date: string
           consent_given: boolean
           digitized_at?: string | null
           digitized_by?: string | null
           id?: string
           paper_form_scan_ref?: string | null
-          participant_id: string
+          participant_id?: string | null
           q1_doctor_eval?: boolean | null
           q1_not_sure?: boolean | null
           q1_school_eval?: boolean | null
@@ -147,13 +151,14 @@ export type Database = {
           q3_family_history?: string | null
         }
         Update: {
+          assigned_code?: string | null
           consent_date?: string
           consent_given?: boolean
           digitized_at?: string | null
           digitized_by?: string | null
           id?: string
           paper_form_scan_ref?: string | null
-          participant_id?: string
+          participant_id?: string | null
           q1_doctor_eval?: boolean | null
           q1_not_sure?: boolean | null
           q1_school_eval?: boolean | null
@@ -326,7 +331,7 @@ export type Database = {
           domain: string
           edited_by: string | null
           id: string
-          instruction_audio_url: string | null
+          instruction_audio_path: string | null
           is_instruction_replayable: boolean
           is_practice: boolean
           is_scored: boolean
@@ -334,7 +339,7 @@ export type Database = {
           item_code: string
           response_format: string
           scoring_mode: string
-          stimulus_audio_url: string | null
+          stimulus_audio_path: string | null
           stimulus_text: string | null
           subdomain: string | null
           version: number
@@ -347,7 +352,7 @@ export type Database = {
           domain: string
           edited_by?: string | null
           id?: string
-          instruction_audio_url?: string | null
+          instruction_audio_path?: string | null
           is_instruction_replayable?: boolean
           is_practice?: boolean
           is_scored?: boolean
@@ -355,7 +360,7 @@ export type Database = {
           item_code: string
           response_format: string
           scoring_mode: string
-          stimulus_audio_url?: string | null
+          stimulus_audio_path?: string | null
           stimulus_text?: string | null
           subdomain?: string | null
           version?: number
@@ -368,7 +373,7 @@ export type Database = {
           domain?: string
           edited_by?: string | null
           id?: string
-          instruction_audio_url?: string | null
+          instruction_audio_path?: string | null
           is_instruction_replayable?: boolean
           is_practice?: boolean
           is_scored?: boolean
@@ -376,7 +381,7 @@ export type Database = {
           item_code?: string
           response_format?: string
           scoring_mode?: string
-          stimulus_audio_url?: string | null
+          stimulus_audio_path?: string | null
           stimulus_text?: string | null
           subdomain?: string | null
           version?: number
@@ -404,11 +409,15 @@ export type Database = {
           replay_count_stimulus: number | null
           response_format: string | null
           response_id: string | null
-          response_latency_ms: number | null
+          response_latency_from_first_ms: number | null
+          response_latency_from_last_ms: number | null
           scored_by: string | null
           selected_option_key: string | null
+          snapshot_label: string | null
           snapshot_taken_at: string
+          subdomain: string | null
           submitted_at: string | null
+          technical_retry_count: number | null
           typed_value: string | null
         }
         Insert: {
@@ -423,11 +432,15 @@ export type Database = {
           replay_count_stimulus?: number | null
           response_format?: string | null
           response_id?: string | null
-          response_latency_ms?: number | null
+          response_latency_from_first_ms?: number | null
+          response_latency_from_last_ms?: number | null
           scored_by?: string | null
           selected_option_key?: string | null
+          snapshot_label?: string | null
           snapshot_taken_at?: string
+          subdomain?: string | null
           submitted_at?: string | null
+          technical_retry_count?: number | null
           typed_value?: string | null
         }
         Update: {
@@ -442,11 +455,15 @@ export type Database = {
           replay_count_stimulus?: number | null
           response_format?: string | null
           response_id?: string | null
-          response_latency_ms?: number | null
+          response_latency_from_first_ms?: number | null
+          response_latency_from_last_ms?: number | null
           scored_by?: string | null
           selected_option_key?: string | null
+          snapshot_label?: string | null
           snapshot_taken_at?: string
+          subdomain?: string | null
           submitted_at?: string | null
+          technical_retry_count?: number | null
           typed_value?: string | null
         }
         Relationships: []
@@ -607,6 +624,7 @@ export type Database = {
       }
       sessions: {
         Row: {
+          assigned_code: string | null
           auth_uid: string
           ended_at: string | null
           id: string
@@ -616,6 +634,7 @@ export type Database = {
           status: string
         }
         Insert: {
+          assigned_code?: string | null
           auth_uid?: string
           ended_at?: string | null
           id?: string
@@ -625,6 +644,7 @@ export type Database = {
           status?: string
         }
         Update: {
+          assigned_code?: string | null
           auth_uid?: string
           ended_at?: string | null
           id?: string
@@ -657,10 +677,13 @@ export type Database = {
           replay_count_stimulus: number | null
           response_format: string | null
           response_id: string | null
-          response_latency_ms: number | null
+          response_latency_from_first_ms: number | null
+          response_latency_from_last_ms: number | null
           scored_by: string | null
           selected_option_key: string | null
+          subdomain: string | null
           submitted_at: string | null
+          technical_retry_count: number | null
           typed_value: string | null
         }
         Relationships: []
@@ -744,7 +767,15 @@ export type Database = {
     Functions: {
       can_manage_items: { Args: never; Returns: boolean }
       can_rate: { Args: never; Returns: boolean }
+      generate_participant_code: { Args: never; Returns: string }
       is_researcher: { Args: never; Returns: boolean }
+      start_session: {
+        Args: never
+        Returns: {
+          out_assigned_code: string
+          out_session_id: string
+        }[]
+      }
       submit_session: {
         Args: { p_participant: Json; p_responses: Json; p_session_id: string }
         Returns: string

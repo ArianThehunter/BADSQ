@@ -4,8 +4,13 @@ Data-collection instrument for a dyslexia screening study with 12–14 year old 
 in Bangladesh. Vite + React + TypeScript client, Supabase (Postgres + Storage + Auth) backend.
 
 **Current phase: 0 — scaffold, migrations, RLS verification.** The participant test flow is
-Phase 1 and is not built yet. Read [PHASE_0_REPORT.md](PHASE_0_REPORT.md) first — it lists
-four blocking findings that must be resolved before Phase 1 can begin.
+Phase 1 and is not built yet.
+
+Read the reports in order: [PHASE_0_REPORT.md](PHASE_0_REPORT.md) found seven defects (F1–F7) in
+migrations 0001–0003; [MIGRATION_0004_REPORT.md](MIGRATION_0004_REPORT.md) verifies that 0004
+fixed all of them and records ten new findings (G1–G10). **One blocker remains for Phase 1: G1 —
+migration 0004 renamed the item audio columns but never recreated `public_items`, so the
+participant read path still serves the old names and TestRunner cannot resolve item audio.**
 
 ## Privacy posture
 
@@ -36,33 +41,43 @@ Beyond that, three dashboard steps are **not** automatable and are still outstan
 
 ## Migrations
 
-`supabase/migrations/` holds three files, applied in order:
+`supabase/migrations/` holds four files, applied in order:
 
 | File | Contents |
 |---|---|
 | `0001_schema.sql` | Tables, versioned item bank, rating-propagation trigger, `ml_export_v1` |
 | `0002_rls_policies.sql` | Row-Level Security for anonymous participants and allowlisted researchers |
 | `0003_phase0_fixes.sql` | Circular-FK removal, dual latency anchors, answer-key views, storage bucket + policies, atomic `submit_session()` RPC, indexes |
+| `0004_phase0_defect_fixes.sql` | Fixes F1–F7; adds the item-audio bucket, server-issued participant codes (`start_session()`), and paper-consent linkage |
 
-All three apply cleanly against Postgres 17.6. Apply with `supabase migration up`, or paste
+All four apply cleanly against Postgres 17.6. Apply with `supabase migration up`, or paste
 each file into the SQL editor in order.
+
+### Participant codes
+
+Sessions are opened with the `start_session()` RPC, never by inserting a `sessions` row directly.
+It returns a `BADSQ-XXXX-XXXX` code (alphabet excludes I/O/0/1 because it is hand-transcribed)
+which the supervising teacher writes onto the paper consent form. `submit_session()` takes the
+code from the session row and **ignores any code in the client payload** — that is verified by a
+tamper assertion in the suite.
 
 ## Verification
 
 Two suites, both re-runnable, covering different layers:
 
 ```bash
-node scripts/verify-security.mjs     # real HTTP as the anon role (21 assertions)
+node scripts/verify-security.mjs     # real HTTP as the anon role (25 assertions)
 ```
 
 ```
-scripts/verify_security.sql          # RLS/policy layer via role impersonation (58 assertions)
+scripts/verify_security.sql          # RLS/policy layer via role impersonation (73 assertions)
 ```
 
 Run the SQL suite as `postgres` in the Supabase SQL editor. It rebuilds its own fixtures,
-writes results to `verify.results`, and tears down cleanly. Latest recorded outcome:
-**58 assertions, 43 passed, 15 failed** and **21 HTTP assertions, 15 passed, 6 failed** —
-every failure is catalogued in [PHASE_0_REPORT.md](PHASE_0_REPORT.md).
+writes results to `verify.results`, and tears down cleanly. Latest recorded outcome after
+migration 0004: **73 assertions, 70 passed, 3 failed** and **25 HTTP assertions, 23 passed,
+2 failed** — every failure is catalogued in
+[MIGRATION_0004_REPORT.md](MIGRATION_0004_REPORT.md). (Before 0004 it was 43/15 and 15/6.)
 
 ## Scripts
 
@@ -87,5 +102,5 @@ src/
   types/database.types.ts      Generated from the live schema
 public/fonts/                  Self-hosted Unicode Bangla font
 scripts/                       Verification suites
-supabase/migrations/           0001, 0002, 0003
+supabase/migrations/           0001, 0002, 0003, 0004
 ```
