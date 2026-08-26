@@ -374,6 +374,7 @@ gitignored and confirmed untracked at push time.
 ## 10. State of the repo
 
 - **Branch:** `main`, pushed to `https://github.com/ArianThehunter/BADSQ`
+- **Commit:** `448aaee` — "Phase 1: migration 0005 hardening fixes, view-drift release gate, researcher auth and Item Bank Editor" — merged with the repo's pre-existing `eae53a4` (LICENSE + README) via `1782267`, which is the pushed tip. The remote's LICENSE (MIT) was kept; its README was superseded by this project's own, which the merge resolved automatically with no conflict.
 - **Supabase project:** `badsq-platform`, ref `gfxdhqkxetuoetzzrxxq`, region `ap-south-1`, Postgres 17.6, Free plan
 - **Migration state:** 0001–0005 all applied. Database contains **no data** — every fixture created during this phase's verification and integration testing was deleted; all tables confirmed at 0 rows, both storage buckets confirmed empty, `verify` schema confirmed absent.
 
