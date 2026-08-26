@@ -3,14 +3,17 @@
 Data-collection instrument for a dyslexia screening study with 12–14 year old participants
 in Bangladesh. Vite + React + TypeScript client, Supabase (Postgres + Storage + Auth) backend.
 
-**Current phase: 0 — scaffold, migrations, RLS verification.** The participant test flow is
-Phase 1 and is not built yet.
+**Current phase: 1 — researcher auth + Item Bank Editor.** The participant test flow
+(TestRunner) is Phase 2+ and is not built yet.
 
 Read the reports in order: [PHASE_0_REPORT.md](PHASE_0_REPORT.md) found seven defects (F1–F7) in
-migrations 0001–0003; [MIGRATION_0004_REPORT.md](MIGRATION_0004_REPORT.md) verifies that 0004
-fixed all of them and records ten new findings (G1–G10). **One blocker remains for Phase 1: G1 —
-migration 0004 renamed the item audio columns but never recreated `public_items`, so the
-participant read path still serves the old names and TestRunner cannot resolve item audio.**
+migrations 0001–0003; [MIGRATION_0004_REPORT.md](MIGRATION_0004_REPORT.md) fixed those and found
+ten more (G1–G10); [PHASE_1_REPORT.md](PHASE_1_REPORT.md) fixes seven of those (migration 0005),
+adds a self-testing release gate against the view-column-drift defect class that had recurred
+twice, and builds researcher magic-link auth plus the Item Bank Editor. **One known gap remains
+(H1): the two trigger functions' `EXECUTE` privilege was revoked from `anon`/`authenticated` but
+not from `PUBLIC`, which those roles still inherit from — not remotely exploitable (PostgREST
+does not expose trigger-returning functions as RPCs at all), but not the fix as specified either.**
 
 ## Privacy posture
 
@@ -41,7 +44,7 @@ Beyond that, three dashboard steps are **not** automatable and are still outstan
 
 ## Migrations
 
-`supabase/migrations/` holds four files, applied in order:
+`supabase/migrations/` holds five files, applied in order:
 
 | File | Contents |
 |---|---|
@@ -49,8 +52,9 @@ Beyond that, three dashboard steps are **not** automatable and are still outstan
 | `0002_rls_policies.sql` | Row-Level Security for anonymous participants and allowlisted researchers |
 | `0003_phase0_fixes.sql` | Circular-FK removal, dual latency anchors, answer-key views, storage bucket + policies, atomic `submit_session()` RPC, indexes |
 | `0004_phase0_defect_fixes.sql` | Fixes F1–F7; adds the item-audio bucket, server-issued participant codes (`start_session()`), and paper-consent linkage |
+| `0005_hardening.sql` | Fixes G1–G3, G6–G8 and a NULL-answer-key scoring hazard; adds referential integrity to the paper-consent join key |
 
-All four apply cleanly against Postgres 17.6. Apply with `supabase migration up`, or paste
+All five apply cleanly against Postgres 17.6. Apply with `supabase migration up`, or paste
 each file into the SQL editor in order.
 
 ### Participant codes
@@ -63,21 +67,28 @@ tamper assertion in the suite.
 
 ## Verification
 
-Two suites, both re-runnable, covering different layers:
+Three checks, all re-runnable, covering different layers:
 
 ```bash
-node scripts/verify-security.mjs     # real HTTP as the anon role (25 assertions)
+node scripts/verify-security.mjs     # real HTTP as the anon role (29 assertions)
 ```
 
 ```
-scripts/verify_security.sql          # RLS/policy layer via role impersonation (73 assertions)
+scripts/verify_security.sql          # RLS/policy layer via role impersonation (65 assertions)
+```
+
+```
+scripts/check_view_drift.sql         # standing release gate: every view's output columns must
+                                      # resolve to a real base column, or be explicitly allowlisted
 ```
 
 Run the SQL suite as `postgres` in the Supabase SQL editor. It rebuilds its own fixtures,
 writes results to `verify.results`, and tears down cleanly. Latest recorded outcome after
-migration 0004: **73 assertions, 70 passed, 3 failed** and **25 HTTP assertions, 23 passed,
-2 failed** — every failure is catalogued in
-[MIGRATION_0004_REPORT.md](MIGRATION_0004_REPORT.md). (Before 0004 it was 43/15 and 15/6.)
+migration 0005: **65 assertions, 63 passed, 2 failed** and **29 HTTP assertions, 28 passed,
+1 failed** — every failure is catalogued in [PHASE_1_REPORT.md](PHASE_1_REPORT.md). Run
+`check_view_drift.sql` before every deploy — it is what stands between a future base-column
+rename and a third silent recurrence of the defect that broke `ml_export_v1` (0003) and then
+`public_items` (0004).
 
 ## Scripts
 
@@ -93,14 +104,19 @@ migration 0004: **73 assertions, 70 passed, 3 failed** and **25 HTTP assertions,
 
 ```
 src/
-  lib/supabaseClient.ts        Supabase client, env config, anonymous sign-in helper
-  lib/localDraft.ts            IndexedDB resume draft            (Phase 1, stub)
-  components/TestRunner.tsx    Item sequencer                    (Phase 1, stub)
-  components/responses/        The six response formats          (Phase 1, stubs)
-  admin/                       Participants, rating queue,
-                               item-bank editor, health view     (Phase 2, stubs)
+  lib/supabaseClient.ts        Supabase client, env config, anonymous + magic-link auth helpers
+  lib/itemBank.ts              Item bank data access: versioning, audio upload/signing
+  lib/itemValidation.ts        Pure activation-guard logic (no I/O)
+  lib/localDraft.ts            IndexedDB resume draft            (Phase 2+, stub)
+  components/TestRunner.tsx    Item sequencer                    (Phase 2+, stub)
+  components/responses/        The six response formats          (Phase 2+, stubs)
+  admin/AuthGate.tsx           Magic-link sign-in + allowlist resolution
+  admin/AdminShell.tsx         Identity banner, sign out, nav
+  admin/ItemBankEditor.tsx     List/filter/create/edit/soft-delete, versioning, audio upload
+  admin/{ParticipantsView,RatingQueue,HealthView}.tsx   Phase 2+, stubs
+  admin.css                    Plain CSS for the admin panel — no component library
   types/database.types.ts      Generated from the live schema
 public/fonts/                  Self-hosted Unicode Bangla font
-scripts/                       Verification suites
-supabase/migrations/           0001, 0002, 0003, 0004
+scripts/                       Verification suites + the view-drift release gate
+supabase/migrations/           0001, 0002, 0003, 0004, 0005
 ```

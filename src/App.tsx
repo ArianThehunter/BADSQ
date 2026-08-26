@@ -9,6 +9,9 @@
 
 import { useEffect, useState } from 'react';
 import { supabase, SUPABASE_URL } from './lib/supabaseClient';
+import AuthGate from './admin/AuthGate';
+import AdminShell from './admin/AdminShell';
+import './admin.css';
 
 type CheckState =
   | { kind: 'pending' }
@@ -40,7 +43,34 @@ function Row({ label, state }: { label: string; state: CheckState }) {
   );
 }
 
+/** Trivial hash router: `#/admin...` goes to the researcher panel, anything
+ * else is the Phase 0 status page. No routing library — the surface here is
+ * two branches. */
+function useIsAdminRoute(): boolean {
+  const [isAdmin, setIsAdmin] = useState(() => window.location.hash.startsWith('#/admin'));
+  useEffect(() => {
+    const onHash = () => setIsAdmin(window.location.hash.startsWith('#/admin'));
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
+  return isAdmin;
+}
+
 export default function App() {
+  const isAdminRoute = useIsAdminRoute();
+
+  if (isAdminRoute) {
+    return (
+      <AuthGate>
+        {({ profile, email }) => <AdminShell profile={profile} email={email} />}
+      </AuthGate>
+    );
+  }
+
+  return <StatusPage />;
+}
+
+function StatusPage() {
   const [items, setItems] = useState<CheckState>({ kind: 'pending' });
   const [options, setOptions] = useState<CheckState>({ kind: 'pending' });
   const [audioCols, setAudioCols] = useState<CheckState>({ kind: 'pending' });
@@ -71,10 +101,9 @@ export default function App() {
       );
 
       // Migration 0004 renamed items.*_audio_url to *_audio_path but never
-      // recreated public_items, so the view still serves the OLD names. Ask for
-      // the new ones and surface the failure rather than hiding it.
-      // Deliberately requests a column the view does not expose, so the runtime
-      // error is visible. See PHASE_0_REPORT.md finding G1.
+      // recreated public_items (finding G1, PHASE_0_REPORT.md). Migration 0005
+      // dropped and recreated the view with the correct names — this check now
+      // asserts that fix holds, rather than documenting the defect.
       const audio = await supabase
         .from('public_items')
         .select('item_code, instruction_audio_path, stimulus_audio_path');
@@ -82,7 +111,7 @@ export default function App() {
       setAudioCols(
         audio.error
           ? { kind: 'fail', detail: `${audio.error.code ?? '?'}: ${audio.error.message}` }
-          : { kind: 'ok', detail: 'view exposes the renamed audio path columns' },
+          : { kind: 'ok', detail: 'view exposes instruction_audio_path / stimulus_audio_path (G1 fix holds)' },
       );
     })();
 
@@ -96,6 +125,9 @@ export default function App() {
       <h1 style={{ marginBottom: '0.25rem' }}>BADSQ — Phase 0</h1>
       <p style={{ color: 'var(--color-muted)', marginTop: 0 }}>
         Scaffold, migrations, and RLS verification. The participant test flow is Phase 1.
+      </p>
+      <p style={{ marginTop: 0 }}>
+        <a href="#/admin">Researcher admin panel &rarr;</a>
       </p>
 
       <section
@@ -127,16 +159,11 @@ export default function App() {
           <Row label="public_items exposes the renamed *_audio_path columns" state={audioCols} />
         </ul>
         <p style={{ color: 'var(--color-muted)', fontSize: '0.875rem' }}>
-          The first two checks were the F1 blocker and are fixed by migration 0004. They read 0
-          rows until the item bank is populated, which is expected — the check is that they return
-          HTTP 200 rather than a permission error.
-        </p>
-        <p style={{ color: 'var(--color-muted)', fontSize: '0.875rem' }}>
-          The third check is expected to FAIL (finding G1 in PHASE_0_REPORT.md): migration 0004
-          renamed <code>items.instruction_audio_url</code> to <code>instruction_audio_path</code>{' '}
-          but never recreated <code>public_items</code>, and a base-column rename does not rename a
-          view&apos;s output column. The participant read path still serves the old names, so
-          TestRunner cannot resolve item audio until the view is recreated.
+          All three checks should now pass (as of migration 0005). Row counts reflect whatever is
+          currently in the item bank — 0 is expected on an empty bank, not a failure. What matters
+          is HTTP 200 with no permission error, and (for the third check) that the renamed audio
+          path columns actually resolve. See PHASE_0_REPORT.md (F1) and MIGRATION_0004_REPORT.md
+          (G1) for the history of this defect, and PHASE_1_REPORT.md for the 0005 fix.
         </p>
       </section>
     </main>

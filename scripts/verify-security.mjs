@@ -265,6 +265,29 @@ console.log('='.repeat(78));
     'denied or empty', line(r), !listed);
 }
 
+// ------------------------------------------------- migration 0005 surfaces
+{
+  // 0005 revoked the participant's direct INSERT on sessions; start_session()
+  // is now the only entry point.
+  const r = await probe('POST', '/rest/v1/sessions', { body: JSON.stringify({ status: 'in_progress' }) });
+  record('anon POST /rest/v1/sessions after 0005 revoked INSERT',
+    'denied', line(r), r.status >= 400);
+}
+{
+  const r = await probe('PATCH', '/rest/v1/sessions?status=eq.in_progress',
+    { body: JSON.stringify({ status: 'completed' }) });
+  record('anon PATCH /rest/v1/sessions (mark completed without submitting)',
+    'denied or 0 rows affected', line(r), r.status >= 400 || r.rowCount === 0);
+}
+for (const fn of ['propagate_audio_rating', 'link_researcher_on_signup']) {
+  // These are trigger functions. 0005 revoked EXECUTE from anon/authenticated,
+  // though the PUBLIC grant remains (see the report). Independently of that,
+  // PostgREST does not expose trigger-returning functions at all.
+  const r = await probe('POST', `/rest/v1/rpc/${fn}`, { body: '{}' });
+  record(`anon POST /rest/v1/rpc/${fn} (trigger function must not be RPC surface)`,
+    'not callable', line(r), r.status >= 400);
+}
+
 // -------------------------------------------------------------------- auth
 {
   const r = await probe('POST', '/auth/v1/signup', { body: JSON.stringify({}) });

@@ -1,0 +1,414 @@
+/*
+ * Admin panel styles. Plain CSS, relative units, no component library.
+ *
+ * Researchers author items here for long stretches, so the priorities are
+ * legibility of Bangla text and unambiguous state (active vs retired, blocked
+ * vs publishable) rather than visual polish.
+ */
+
+.pad {
+  padding: 1.5rem;
+}
+
+.muted {
+  color: var(--color-muted);
+}
+
+.small {
+  font-size: 0.8125rem;
+}
+
+.error {
+  color: #b3261e;
+}
+
+/* ----------------------------------------------------------- sign-in card */
+
+.auth-card {
+  max-width: 26rem;
+  margin: 4rem auto;
+  padding: 1.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.5rem;
+}
+
+.auth-card h1 {
+  font-size: 1.25rem;
+  margin: 0 0 0.5rem;
+}
+
+.auth-card form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+/* ------------------------------------------------------------------ shell */
+
+.admin {
+  display: flex;
+  flex-direction: column;
+  min-height: 100dvh;
+}
+
+.admin-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding: 0.75rem 1.25rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.admin-bar > div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  min-width: 0;
+}
+
+.admin-title {
+  font-weight: 600;
+}
+
+.admin-nav {
+  display: flex;
+  gap: 0.25rem;
+  flex-wrap: wrap;
+  padding: 0.5rem 1.25rem 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.admin-nav a {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 0.375rem 0.375rem 0 0;
+  color: var(--color-muted);
+  text-decoration: none;
+  font-size: 0.9375rem;
+}
+
+.admin-nav a:hover {
+  color: var(--color-fg);
+}
+
+.admin-nav a.active {
+  color: var(--color-fg);
+  font-weight: 600;
+  border-color: var(--color-border);
+  background: var(--color-bg);
+  margin-bottom: -1px;
+}
+
+.admin-nav .badge {
+  font-size: 0.6875rem;
+  padding: 0.0625rem 0.3125rem;
+  border-radius: 0.625rem;
+  background: #eef0f4;
+  color: var(--color-muted);
+}
+
+.admin-main {
+  flex: 1;
+  padding: 1.25rem;
+  max-width: 68rem;
+  width: 100%;
+}
+
+/* ------------------------------------------------------------- primitives */
+
+.row-between {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.row-between h2 {
+  font-size: 1.125rem;
+  margin: 0;
+}
+
+.filters {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin: 1rem 0;
+  padding: 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.375rem;
+}
+
+.notice {
+  margin: 1rem 0;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--color-border);
+  border-left: 4px solid var(--color-muted);
+  border-radius: 0.25rem;
+  font-size: 0.9375rem;
+}
+
+.notice ul {
+  margin: 0.5rem 0 0;
+  padding-left: 1.25rem;
+}
+
+.notice-ok {
+  border-left-color: #0f7b3f;
+  background: #f2fbf5;
+}
+
+.notice-warn {
+  border-left-color: #a86b00;
+  background: #fffaf0;
+}
+
+.notice-error {
+  border-left-color: #b3261e;
+  background: #fdf3f2;
+}
+
+.pill {
+  display: inline-block;
+  padding: 0.0625rem 0.5rem;
+  border-radius: 0.75rem;
+  font-size: 0.75rem;
+  background: #eef0f4;
+  color: var(--color-muted);
+}
+
+.pill-on {
+  background: #dcf3e5;
+  color: #0f5c31;
+}
+
+/* ------------------------------------------------------------------ forms */
+
+label,
+.field-label {
+  display: block;
+  font-size: 0.875rem;
+  font-weight: 600;
+  margin-bottom: 0.25rem;
+}
+
+label.inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-weight: 400;
+  margin: 0 1rem 0 0;
+}
+
+label.block {
+  display: block;
+  margin: 1rem 0;
+}
+
+input[type='text'],
+input[type='email'],
+input[type='number'],
+select,
+textarea {
+  width: 100%;
+  padding: 0.5rem;
+  font: inherit;
+  /* Bangla must render in the pinned Unicode face inside inputs too, not in a
+     system fallback that could make legacy-encoded text look plausible. */
+  font-family: var(--font-bangla);
+  color: var(--color-fg);
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 0.25rem;
+}
+
+textarea {
+  resize: vertical;
+  line-height: 1.7;
+}
+
+input[type='checkbox'] {
+  width: auto;
+  min-height: 0;
+  min-width: 0;
+}
+
+button {
+  padding: 0.5rem 0.875rem;
+  font: inherit;
+  color: var(--color-fg);
+  background: #f4f5f7;
+  border: 1px solid var(--color-border);
+  border-radius: 0.25rem;
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  background: #e9ebef;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+button.primary {
+  color: #fff;
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+button.primary:hover:not(:disabled) {
+  background: #1740b0;
+}
+
+fieldset {
+  margin: 1rem 0;
+  padding: 0.875rem 1rem 1rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.375rem;
+}
+
+legend {
+  padding: 0 0.375rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.grid-2 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  gap: 1rem;
+  margin: 1rem 0;
+}
+
+.actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin: 1.5rem 0 0.5rem;
+}
+
+/* ------------------------------------------------------------------ audio */
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.audio-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.audio-row input[type='file'] {
+  font: inherit;
+  font-size: 0.8125rem;
+  flex: 1;
+  min-width: 10rem;
+}
+
+.audio-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.audio-preview audio {
+  width: 100%;
+  max-width: 22rem;
+}
+
+.audio-preview code {
+  color: var(--color-muted);
+  word-break: break-all;
+}
+
+/* ---------------------------------------------------------------- options */
+
+.option-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.5rem;
+}
+
+.option-row input[type='text'],
+.option-row input:not([type]) {
+  flex: 1;
+  min-width: 12rem;
+}
+
+.option-key {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 0.25rem;
+  background: #eef0f4;
+  font-weight: 600;
+  font-size: 0.875rem;
+  flex: none;
+}
+
+/* ------------------------------------------------------------------ table */
+
+.table-scroll {
+  overflow-x: auto;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9375rem;
+}
+
+th,
+td {
+  padding: 0.5rem 0.625rem;
+  text-align: left;
+  border-bottom: 1px solid var(--color-border);
+  vertical-align: top;
+}
+
+th {
+  font-size: 0.8125rem;
+  color: var(--color-muted);
+  white-space: nowrap;
+}
+
+tr.retired td {
+  opacity: 0.6;
+}
+
+/* Bangla needs the extra leading even in dense table cells. */
+.bangla-cell {
+  font-family: var(--font-bangla);
+  line-height: 1.8;
+  max-width: 16rem;
+}
+
+.actions-cell {
+  display: flex;
+  gap: 0.375rem;
+  white-space: nowrap;
+}
+
+.actions-cell button {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.8125rem;
+  min-height: 0;
+}

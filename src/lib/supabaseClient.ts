@@ -41,8 +41,14 @@ export const supabase: SupabaseClient<Database> = createClient<Database>(
       // same auth.uid() still owns their `sessions` row.
       persistSession: true,
       autoRefreshToken: true,
-      // No OAuth redirects are used, so there is never a token in the URL.
-      detectSessionInUrl: false,
+      // CHANGED IN PHASE 1. Phase 0 set this false on the reasoning that "no
+      // OAuth redirects are used" — but researcher magic-link login IS a
+      // redirect flow, and with it false the returning link would never
+      // establish a session. PKCE is chosen over the implicit flow so the
+      // redirect carries a short-lived single-use `code` in the query string
+      // rather than access/refresh tokens in the URL fragment.
+      detectSessionInUrl: true,
+      flowType: 'pkce',
     },
     global: {
       headers: { 'x-application-name': 'badsq-platform' },
@@ -75,6 +81,63 @@ export async function ensureAnonymousSession() {
 export async function currentAuthUid(): Promise<string | null> {
   const { data } = await supabase.auth.getUser();
   return data.user?.id ?? null;
+}
+
+/** A researcher's allowlist row. Absent means: signed in, but not authorised. */
+export type ResearcherProfile = {
+  id: string;
+  email: string;
+  can_rate: boolean;
+  can_manage_items: boolean;
+};
+
+/**
+ * Send a magic link to a researcher.
+ *
+ * Being on the `researchers` allowlist is NOT checked here, and cannot be:
+ * `researchers` is readable only by an already-allowlisted user, so an
+ * unauthorised address would learn nothing either way. Anyone may request a
+ * link; authorisation is decided after sign-in by loadResearcherProfile(), and
+ * enforced for real by RLS on every table.
+ */
+export async function sendResearcherMagicLink(email: string): Promise<void> {
+  const { error } = await supabase.auth.signInWithOtp({
+    email: email.trim().toLowerCase(),
+    options: {
+      emailRedirectTo: `${window.location.origin}${window.location.pathname}#/admin`,
+      // Researchers are pre-provisioned in the allowlist. Never let a magic-link
+      // request create a brand-new auth user.
+      shouldCreateUser: false,
+    },
+  });
+  if (error) throw new Error(error.message);
+}
+
+/**
+ * Load the signed-in user's allowlist row, or null if they are not a researcher.
+ *
+ * Returns null both for "not on the allowlist" and for "on the allowlist but
+ * user_id was never linked" — see the known gap noted in PHASE_1_REPORT.md:
+ * `link_researcher_on_signup` fires only on auth.users INSERT, so an address
+ * added to the allowlist AFTER that person first signed in stays unlinked.
+ */
+export async function loadResearcherProfile(): Promise<ResearcherProfile | null> {
+  const { data: userData } = await supabase.auth.getUser();
+  const uid = userData.user?.id;
+  if (!uid) return null;
+
+  const { data, error } = await supabase
+    .from('researchers')
+    .select('id, email, can_rate, can_manage_items')
+    .eq('user_id', uid)
+    .maybeSingle();
+
+  if (error || !data) return null;
+  return data as ResearcherProfile;
+}
+
+export async function signOut(): Promise<void> {
+  await supabase.auth.signOut();
 }
 
 /**
