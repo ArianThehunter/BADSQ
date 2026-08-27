@@ -62,7 +62,7 @@ Beyond that, dashboard steps that are **not** automatable:
 
 ## Migrations
 
-`supabase/migrations/` holds eight files, applied in order:
+`supabase/migrations/` holds nine files, applied in order:
 
 | File | Contents |
 |---|---|
@@ -74,11 +74,10 @@ Beyond that, dashboard steps that are **not** automatable:
 | `0006_versioning_and_h1.sql` | Closes H1 (PUBLIC grant on the trigger functions); adds atomic `save_item_version()`; consolidates `sessions`' two SELECT policies into one |
 | `0007_i1_fix.sql` | Closes I1 (missing SELECT policy on `badsq-audio` broke every participant audio upload via `INSERT...RETURNING`); fixes both `auth_rls_initplan` warnings; adds `responses.selection_change_count` |
 | `0008_reliability_subsample.sql` | Automatic random reliability-subsample assignment (20%, `reliability_subsample_rate()`) at submission time, replacing rater-chosen manual-only assignment; rewrites `submit_session()`'s guard clause (verified behaviorally equivalent) |
+| `0009_j1_fix.sql` | Closes J1: adds pinned `search_path = public` to `reliability_subsample_rate()`, restoring search_path hygiene across all public functions |
 
-All eight apply cleanly against Postgres 17.6. Apply with `supabase migration up`, or paste
-each file into the SQL editor in order. **Known gap: `reliability_subsample_rate()` is missing
-the `search_path` pin every other function in this schema has (J1,
-[PHASE_4_REPORT.md](PHASE_4_REPORT.md) §6) — assessed as not currently exploitable, not yet fixed.**
+All nine apply cleanly against Postgres 17.6. Apply with `supabase migration up`, or paste
+each file into the SQL editor in order.
 
 ### Participant codes
 
@@ -97,7 +96,7 @@ node scripts/verify-security.mjs     # real HTTP as the anon role (30 assertions
 ```
 
 ```
-scripts/verify_security.sql          # RLS/policy layer via role impersonation (82 assertions)
+scripts/verify_security.sql          # RLS/policy layer via role impersonation (84 assertions)
 ```
 
 ```
@@ -107,9 +106,9 @@ scripts/check_view_drift.sql         # standing release gate: every view's outpu
 
 Run the SQL suite as `postgres` in the Supabase SQL editor. It rebuilds its own fixtures,
 writes results to `verify.results`, and tears down cleanly. Latest recorded outcome after
-migration 0008: **84 assertions (82 + 2 new in PART 15), all passing** and **30 HTTP assertions,
-30 passed** — see [PHASE_4_REPORT.md](PHASE_4_REPORT.md) §4.5 for what was and wasn't re-run in
-full this phase. Run
+migration 0009: **84 assertions (all 15 parts), 84 passed, 0 failed** and **30 HTTP assertions,
+30 passed, 0 failed** — see [PHASE_5_AUDIT_REPORT.md](PHASE_5_AUDIT_REPORT.md) for full independent
+verification details, the live browser resume & dual latency test report, and the secret scan. Run
 `check_view_drift.sql` before every deploy — it is what stands between a future base-column
 rename and a third silent recurrence of the defect that broke `ml_export_v1` (0003) and then
 `public_items` (0004).
