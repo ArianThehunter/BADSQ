@@ -1,15 +1,15 @@
-// Generated from the live BADSQ schema (migrations 0001 + 0002 + 0003 + 0004).
+// Generated from the live BADSQ schema (migrations 0001-0006).
 //
-// DO NOT EDIT BY HAND. Regenerate after every migration:
+// DO NOT EDIT BY HAND except for the noted fix below. Regenerate after every migration:
 //   supabase gen types typescript --project-id <ref> > src/types/database.types.ts
 // (or, without the CLI, via the Supabase MCP generate_typescript_types tool)
 //
-// READER BEWARE — a real mismatch is visible in these types, not a generation bug:
-//   items.instruction_audio_path / items.stimulus_audio_path   (base table, renamed by 0004)
-//   public_items.instruction_audio_url / .stimulus_audio_url   (participant view, NOT renamed)
-// Migration 0004 renamed the base columns but never recreated public_items, and a
-// base-column rename does not rename a view's output column. The participant read
-// path therefore still serves the old names. See PHASE_0_REPORT.md, finding G1.
+// MANUAL FIX: the generator emits `save_item_version`'s Args as
+// `p_old_item_id: string`, but the function's actual parameter is nullable
+// (NULL means "create a brand-new item"), and Supabase's generator does not
+// encode SQL parameter nullability. Left as `string` this makes `createItem()`
+// fail to typecheck when it legitimately passes `null`. Corrected to
+// `string | null` by hand below; re-check this after every regeneration.
 
 export type Json =
   | string
@@ -179,6 +179,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "participants"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_consent_session_code"
+            columns: ["assigned_code"]
+            isOneToOne: false
+            referencedRelation: "sessions"
+            referencedColumns: ["assigned_code"]
           },
         ]
       }
@@ -717,14 +724,14 @@ export type Database = {
           display_order: number | null
           domain: string | null
           id: string | null
-          instruction_audio_url: string | null
+          instruction_audio_path: string | null
           is_instruction_replayable: boolean | null
           is_practice: boolean | null
           is_scored: boolean | null
           is_stimulus_replayable: boolean | null
           item_code: string | null
           response_format: string | null
-          stimulus_audio_url: string | null
+          stimulus_audio_path: string | null
           stimulus_text: string | null
           subdomain: string | null
           version: number | null
@@ -733,14 +740,14 @@ export type Database = {
           display_order?: number | null
           domain?: string | null
           id?: string | null
-          instruction_audio_url?: string | null
+          instruction_audio_path?: string | null
           is_instruction_replayable?: boolean | null
           is_practice?: boolean | null
           is_scored?: boolean | null
           is_stimulus_replayable?: boolean | null
           item_code?: string | null
           response_format?: string | null
-          stimulus_audio_url?: string | null
+          stimulus_audio_path?: string | null
           stimulus_text?: string | null
           subdomain?: string | null
           version?: number | null
@@ -749,14 +756,14 @@ export type Database = {
           display_order?: number | null
           domain?: string | null
           id?: string | null
-          instruction_audio_url?: string | null
+          instruction_audio_path?: string | null
           is_instruction_replayable?: boolean | null
           is_practice?: boolean | null
           is_scored?: boolean | null
           is_stimulus_replayable?: boolean | null
           item_code?: string | null
           response_format?: string | null
-          stimulus_audio_url?: string | null
+          stimulus_audio_path?: string | null
           stimulus_text?: string | null
           subdomain?: string | null
           version?: number | null
@@ -769,6 +776,13 @@ export type Database = {
       can_rate: { Args: never; Returns: boolean }
       generate_participant_code: { Args: never; Returns: string }
       is_researcher: { Args: never; Returns: boolean }
+      save_item_version: {
+        // p_old_item_id is nullable at the SQL level (NULL = brand-new item);
+        // the generator does not encode function-parameter nullability, so this
+        // was corrected by hand from `p_old_item_id: string`. See file header.
+        Args: { p_item: Json; p_old_item_id: string | null; p_options: Json }
+        Returns: string
+      }
       start_session: {
         Args: never
         Returns: {

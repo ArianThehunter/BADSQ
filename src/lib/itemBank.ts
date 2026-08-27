@@ -14,9 +14,13 @@
 import { supabase, AUDIO_BUCKET } from './supabaseClient';
 import { activationBlockers } from './itemValidation';
 import type { DraftItem, DraftOption, ResponseFormat, ScoringMode } from './itemValidation';
+import {
+  ITEM_AUDIO_BUCKET,
+  uploadItemAudio as sharedUploadItemAudio,
+  signedItemAudioUrl,
+} from './media';
 
-export const ITEM_AUDIO_BUCKET = 'badsq-item-audio';
-export { AUDIO_BUCKET };
+export { ITEM_AUDIO_BUCKET, AUDIO_BUCKET };
 
 export type ItemRow = {
   id: string;
@@ -84,10 +88,15 @@ export async function listDomains(): Promise<string[]> {
   return [...new Set((data ?? []).map((r) => (r as { domain: string }).domain))].sort();
 }
 
-function itemPayload(draft: DraftItem, version: number, active: boolean) {
+/**
+ * Payload shape for the `save_item_version` RPC (migration 0006). `version` is
+ * never included — the server computes it (1 for a brand-new item_code, or
+ * previous+1 when superseding), which is what makes the write race-free: the
+ * client never has to read-then-write a version number.
+ */
+function rpcItemPayload(draft: DraftItem, active: boolean) {
   return {
     item_code: draft.item_code.trim(),
-    version,
     domain: draft.domain.trim(),
     subdomain: draft.subdomain?.trim() || null,
     response_format: draft.response_format,
@@ -105,17 +114,18 @@ function itemPayload(draft: DraftItem, version: number, active: boolean) {
   };
 }
 
-async function writeOptions(itemId: string, options: DraftOption[]): Promise<void> {
-  if (options.length === 0) return;
-  const { error } = await supabase.from('item_options').insert(
-    options.map((o) => ({
-      item_id: itemId,
-      option_key: o.option_key.trim(),
-      option_text: o.option_text,
-      is_correct: o.is_correct,
-    })),
-  );
-  if (error) fail('Could not write options', error);
+function rpcOptionsPayload(options: DraftOption[]) {
+  return options.map((o) => ({
+    option_key: o.option_key.trim(),
+    option_text: o.option_text,
+    is_correct: o.is_correct,
+  }));
+}
+
+async function fetchItemById(id: string): Promise<ItemRow> {
+  const { data, error } = await supabase.from('items').select(ITEM_COLUMNS).eq('id', id).single();
+  if (error) fail('Item was saved but could not be re-read', error);
+  return data as ItemRow;
 }
 
 /** Highest version currently recorded for an item_code, or 0 if none. */
@@ -130,7 +140,12 @@ export async function highestVersion(itemCode: string): Promise<number> {
   return data && data.length > 0 ? (data[0] as { version: number }).version : 0;
 }
 
-/** Create version 1 of a brand-new item code. */
+/**
+ * Create version 1 of a brand-new item code, via the `save_item_version` RPC
+ * (migration 0006) — atomic: the item row and every option are written in one
+ * transaction, so a failure partway through never leaves an orphaned,
+ * option-less item behind.
+ */
 export async function createItem(draft: DraftItem, active: boolean): Promise<ItemRow> {
   const existing = await highestVersion(draft.item_code);
   if (existing > 0) {
@@ -139,63 +154,32 @@ export async function createItem(draft: DraftItem, active: boolean): Promise<Ite
         'Edit that item instead — editing creates the next version.',
     );
   }
-  const { data, error } = await supabase
-    .from('items')
-    .insert(itemPayload(draft, 1, active))
-    .select(ITEM_COLUMNS)
-    .single();
+  const { data: newId, error } = await supabase.rpc('save_item_version', {
+    p_old_item_id: null,
+    p_item: rpcItemPayload(draft, active),
+    p_options: rpcOptionsPayload(draft.options),
+  });
   if (error) fail('Could not create item', error);
-
-  const row = data as ItemRow;
-  await writeOptions(row.id, draft.options);
-  return row;
+  return fetchItemById(newId as string);
 }
 
 /**
- * Save an edit as a NEW version, retiring the previous row.
- *
- * NOT atomic — there is no server-side RPC for this, so it is three statements.
- * The ordering is chosen so the failure modes are recoverable and visible:
- *   1. insert the new version (inactive)   — a failure here changes nothing
- *   2. copy the options across             — a failure leaves an inactive,
- *                                            option-less draft, which the
- *                                            activation guard refuses to publish
- *   3. retire the old version, activate the new one
- * A crash between 2 and 3 leaves BOTH versions inactive rather than both active,
- * so participants never see a duplicated item. See PHASE_1_REPORT.md.
+ * Save an edit as a NEW version, retiring the previous row — via the atomic
+ * `save_item_version` RPC. Options are fully replaced for the new version, not
+ * merged with the previous version's, matching the RPC's contract.
  */
 export async function saveNewVersion(
   previous: ItemRow,
   draft: DraftItem,
   active: boolean,
 ): Promise<ItemRow> {
-  const next = (await highestVersion(draft.item_code)) + 1;
-
-  const { data, error } = await supabase
-    .from('items')
-    .insert(itemPayload(draft, next, false))
-    .select(ITEM_COLUMNS)
-    .single();
-  if (error) fail('Could not create the new version', error);
-  const row = data as ItemRow;
-
-  await writeOptions(row.id, draft.options);
-
-  const { error: retireErr } = await supabase
-    .from('items')
-    .update({ active: false })
-    .eq('id', previous.id);
-  if (retireErr) fail('Created the new version but could not retire the previous one', retireErr);
-
-  if (active) {
-    const { error: activateErr } = await supabase
-      .from('items')
-      .update({ active: true })
-      .eq('id', row.id);
-    if (activateErr) fail('Retired the previous version but could not activate the new one', activateErr);
-    row.active = true;
-  }
-  return row;
+  const { data: newId, error } = await supabase.rpc('save_item_version', {
+    p_old_item_id: previous.id,
+    p_item: rpcItemPayload(draft, active),
+    p_options: rpcOptionsPayload(draft.options),
+  });
+  if (error) fail('Could not save the new version', error);
+  return fetchItemById(newId as string);
 }
 
 /** Soft delete. Never a hard DELETE — completed sessions reference this row. */
@@ -217,33 +201,15 @@ export async function setActive(itemId: string, active: boolean): Promise<void> 
  * `items.instruction_audio_path` / `stimulus_audio_path` store the path; the
  * bucket is private, so playback needs a short-lived signed URL. Item audio
  * reveals test content, which is why the bucket is not public.
+ *
+ * Thin re-export of src/lib/media.ts, which TestRunner also uses (participants
+ * read the SAME item audio via the SAME signed-URL mechanism). Kept here too so
+ * existing imports in ItemBankEditor.tsx do not need to change.
  */
-export async function uploadItemAudio(
-  file: File,
-  itemCode: string,
-  kind: 'instruction' | 'stimulus',
-): Promise<string> {
-  const safeCode = itemCode.trim().replace(/[^A-Za-z0-9._-]/g, '_') || 'untitled';
-  const ext = (file.name.split('.').pop() || 'bin').toLowerCase().replace(/[^a-z0-9]/g, '');
-  // Timestamped so re-uploading never silently overwrites an object a previous
-  // item version still points at.
-  const path = `${safeCode}/${kind}-${Date.now()}.${ext}`;
-
-  const { error } = await supabase.storage
-    .from(ITEM_AUDIO_BUCKET)
-    .upload(path, file, { contentType: file.type || undefined, upsert: false });
-  if (error) fail('Audio upload failed', error);
-  return path;
-}
+export const uploadItemAudio = sharedUploadItemAudio;
 
 /** Short-lived signed URL so a researcher can hear what they uploaded. */
-export async function signedAudioUrl(path: string, expiresInSeconds = 3600): Promise<string> {
-  const { data, error } = await supabase.storage
-    .from(ITEM_AUDIO_BUCKET)
-    .createSignedUrl(path, expiresInSeconds);
-  if (error || !data?.signedUrl) fail('Could not sign audio URL', error);
-  return data.signedUrl;
-}
+export const signedAudioUrl = signedItemAudioUrl;
 
 /* ------------------------------------------------- standing quality checks */
 

@@ -1,10 +1,21 @@
 /**
- * TriTap — SCAFFOLD ONLY.
- *
- * Phase 1: TRI_TAP response input.
- * Deliberately unimplemented in Phase 0. See PHASE_0_REPORT.md.
+ * TRI_TAP — a three-option choice. Backed by the same item_options rows as
+ * MCQ_TAP/BINARY_TAP; only the intended option count differs.
  */
 
-export default function TriTap() {
-  return null;
+import OptionGrid from './OptionGrid';
+import type { ChoiceProps } from './types';
+
+export default function TriTap({ options, disabled, value, hasAnswered, onFirstInteraction, onChange }: ChoiceProps) {
+  return (
+    <OptionGrid
+      options={options}
+      disabled={disabled}
+      value={value}
+      hasAnswered={hasAnswered}
+      onFirstInteraction={onFirstInteraction}
+      onChange={onChange}
+      layout="list"
+    />
+  );
 }

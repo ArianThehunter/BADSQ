@@ -3,17 +3,20 @@
 Data-collection instrument for a dyslexia screening study with 12–14 year old participants
 in Bangladesh. Vite + React + TypeScript client, Supabase (Postgres + Storage + Auth) backend.
 
-**Current phase: 1 — researcher auth + Item Bank Editor.** The participant test flow
-(TestRunner) is Phase 2+ and is not built yet.
+**Current phase: 2 — participant TestRunner.** Researcher auth and the Item Bank Editor
+(Phase 1) are done; the participant-facing test flow is now built and browser-verified for
+five of six response formats.
 
 Read the reports in order: [PHASE_0_REPORT.md](PHASE_0_REPORT.md) found seven defects (F1–F7) in
 migrations 0001–0003; [MIGRATION_0004_REPORT.md](MIGRATION_0004_REPORT.md) fixed those and found
 ten more (G1–G10); [PHASE_1_REPORT.md](PHASE_1_REPORT.md) fixes seven of those (migration 0005),
 adds a self-testing release gate against the view-column-drift defect class that had recurred
-twice, and builds researcher magic-link auth plus the Item Bank Editor. **One known gap remains
-(H1): the two trigger functions' `EXECUTE` privilege was revoked from `anon`/`authenticated` but
-not from `PUBLIC`, which those roles still inherit from — not remotely exploitable (PostgREST
-does not expose trigger-returning functions as RPCs at all), but not the fix as specified either.**
+twice, and builds researcher magic-link auth plus the Item Bank Editor; [PHASE_2_REPORT.md](PHASE_2_REPORT.md)
+closes H1 and adds atomic item versioning (migration 0006), builds TestRunner and the six response
+components, and — via genuine browser-driven testing, new this phase — finds **I1: participant
+audio recordings cannot be submitted at all**, a `badsq-audio` bucket policy gap that blocks every
+AUDIO_RECORD item regardless of correct session/auth. Not yet fixed; see the report for the
+proposed migration.
 
 ## Privacy posture
 
@@ -33,18 +36,20 @@ npm run dev
 `.env` is gitignored. Never put a `service_role` / secret key in it — Vite inlines every
 `VITE_*` variable into the client bundle.
 
-Beyond that, three dashboard steps are **not** automatable and are still outstanding:
+Beyond that, dashboard steps that are **not** automatable:
 
-1. **Authentication → Providers → enable Anonymous Sign-ins.** Participant sessions depend
-   on it. Currently disabled; `signInAnonymously()` returns
-   `422 anonymous_provider_disabled`.
+1. ~~Authentication → Providers → enable Anonymous Sign-ins.~~ **Done** — confirmed enabled and
+   exercised for real this phase (participant sessions, submission, and Playwright browser testing
+   all use it).
 2. Configure magic-link email auth for researcher login.
 3. Pre-populate the `researchers` allowlist with your team's real emails before anyone tries
-   to log into the admin panel.
+   to log into the admin panel. (One real address is already present.)
+4. **Fix I1 before enabling any AUDIO_RECORD item for real participants** — see
+   [PHASE_2_REPORT.md](PHASE_2_REPORT.md) §6 for the exact migration needed.
 
 ## Migrations
 
-`supabase/migrations/` holds five files, applied in order:
+`supabase/migrations/` holds six files, applied in order:
 
 | File | Contents |
 |---|---|
@@ -53,8 +58,9 @@ Beyond that, three dashboard steps are **not** automatable and are still outstan
 | `0003_phase0_fixes.sql` | Circular-FK removal, dual latency anchors, answer-key views, storage bucket + policies, atomic `submit_session()` RPC, indexes |
 | `0004_phase0_defect_fixes.sql` | Fixes F1–F7; adds the item-audio bucket, server-issued participant codes (`start_session()`), and paper-consent linkage |
 | `0005_hardening.sql` | Fixes G1–G3, G6–G8 and a NULL-answer-key scoring hazard; adds referential integrity to the paper-consent join key |
+| `0006_versioning_and_h1.sql` | Closes H1 (PUBLIC grant on the trigger functions); adds atomic `save_item_version()`; consolidates `sessions`' two SELECT policies into one |
 
-All five apply cleanly against Postgres 17.6. Apply with `supabase migration up`, or paste
+All six apply cleanly against Postgres 17.6. Apply with `supabase migration up`, or paste
 each file into the SQL editor in order.
 
 ### Participant codes
@@ -70,11 +76,11 @@ tamper assertion in the suite.
 Three checks, all re-runnable, covering different layers:
 
 ```bash
-node scripts/verify-security.mjs     # real HTTP as the anon role (29 assertions)
+node scripts/verify-security.mjs     # real HTTP as the anon role (30 assertions)
 ```
 
 ```
-scripts/verify_security.sql          # RLS/policy layer via role impersonation (65 assertions)
+scripts/verify_security.sql          # RLS/policy layer via role impersonation (75 assertions)
 ```
 
 ```
@@ -84,11 +90,15 @@ scripts/check_view_drift.sql         # standing release gate: every view's outpu
 
 Run the SQL suite as `postgres` in the Supabase SQL editor. It rebuilds its own fixtures,
 writes results to `verify.results`, and tears down cleanly. Latest recorded outcome after
-migration 0005: **65 assertions, 63 passed, 2 failed** and **29 HTTP assertions, 28 passed,
-1 failed** — every failure is catalogued in [PHASE_1_REPORT.md](PHASE_1_REPORT.md). Run
+migration 0006: **75 assertions, 75 passed** and **30 HTTP assertions, 30 passed**. Run
 `check_view_drift.sql` before every deploy — it is what stands between a future base-column
 rename and a third silent recurrence of the defect that broke `ml_export_v1` (0003) and then
 `public_items` (0004).
+
+**Neither suite would have caught I1** (see [PHASE_2_REPORT.md](PHASE_2_REPORT.md) §6) — both test
+a policy's boolean condition, not an actual `INSERT ... RETURNING`, which is where I1 actually
+lives. Found only by a genuine browser-driven walkthrough of the real client code. Treat "the
+suites pass" as necessary, not sufficient, for anything touching Storage.
 
 ## Scripts
 
@@ -105,18 +115,20 @@ rename and a third silent recurrence of the defect that broke `ml_export_v1` (00
 ```
 src/
   lib/supabaseClient.ts        Supabase client, env config, anonymous + magic-link auth helpers
-  lib/itemBank.ts              Item bank data access: versioning, audio upload/signing
+  lib/itemBank.ts              Item bank data access: versioning via save_item_version() RPC
   lib/itemValidation.ts        Pure activation-guard logic (no I/O)
-  lib/localDraft.ts            IndexedDB resume draft            (Phase 2+, stub)
-  components/TestRunner.tsx    Item sequencer                    (Phase 2+, stub)
-  components/responses/        The six response formats          (Phase 2+, stubs)
+  lib/media.ts                 Shared audio-storage helpers: signed URLs, uploads, MIME detection
+  lib/localDraft.ts            IndexedDB resume draft, keyed by session UUID
+  components/TestRunner.tsx    Participant flow orchestrator: intake, sequencing, submit, resume
+  components/testrunner.css    Plain CSS for the participant flow — no component library
+  components/responses/        The six response formats (MCQ/BINARY/TRI/LIKERT/NUMERIC/AUDIO)
   admin/AuthGate.tsx           Magic-link sign-in + allowlist resolution
   admin/AdminShell.tsx         Identity banner, sign out, nav
   admin/ItemBankEditor.tsx     List/filter/create/edit/soft-delete, versioning, audio upload
-  admin/{ParticipantsView,RatingQueue,HealthView}.tsx   Phase 2+, stubs
+  admin/{ParticipantsView,RatingQueue,HealthView}.tsx   Phase 3+, stubs
   admin.css                    Plain CSS for the admin panel — no component library
   types/database.types.ts      Generated from the live schema
 public/fonts/                  Self-hosted Unicode Bangla font
 scripts/                       Verification suites + the view-drift release gate
-supabase/migrations/           0001, 0002, 0003, 0004, 0005
+supabase/migrations/           0001, 0002, 0003, 0004, 0005, 0006
 ```

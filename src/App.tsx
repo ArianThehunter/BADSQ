@@ -11,6 +11,7 @@ import { useEffect, useState } from 'react';
 import { supabase, SUPABASE_URL } from './lib/supabaseClient';
 import AuthGate from './admin/AuthGate';
 import AdminShell from './admin/AdminShell';
+import TestRunner from './components/TestRunner';
 import './admin.css';
 
 type CheckState =
@@ -43,28 +44,37 @@ function Row({ label, state }: { label: string; state: CheckState }) {
   );
 }
 
-/** Trivial hash router: `#/admin...` goes to the researcher panel, anything
- * else is the Phase 0 status page. No routing library — the surface here is
- * two branches. */
-function useIsAdminRoute(): boolean {
-  const [isAdmin, setIsAdmin] = useState(() => window.location.hash.startsWith('#/admin'));
+/** Trivial hash router: `#/admin...` goes to the researcher panel, `#/test`
+ * goes to the participant TestRunner, anything else is the Phase 0 status
+ * page. No routing library — the surface here is three branches. */
+function useRoute(): 'admin' | 'test' | 'status' {
+  const read = () => {
+    if (window.location.hash.startsWith('#/admin')) return 'admin' as const;
+    if (window.location.hash.startsWith('#/test')) return 'test' as const;
+    return 'status' as const;
+  };
+  const [route, setRoute] = useState(read);
   useEffect(() => {
-    const onHash = () => setIsAdmin(window.location.hash.startsWith('#/admin'));
+    const onHash = () => setRoute(read());
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
-  return isAdmin;
+  return route;
 }
 
 export default function App() {
-  const isAdminRoute = useIsAdminRoute();
+  const route = useRoute();
 
-  if (isAdminRoute) {
+  if (route === 'admin') {
     return (
       <AuthGate>
         {({ profile, email }) => <AdminShell profile={profile} email={email} />}
       </AuthGate>
     );
+  }
+
+  if (route === 'test') {
+    return <TestRunner />;
   }
 
   return <StatusPage />;
@@ -124,10 +134,12 @@ function StatusPage() {
     <main style={{ maxWidth: '44rem', margin: '0 auto', padding: '2rem 1.25rem' }}>
       <h1 style={{ marginBottom: '0.25rem' }}>BADSQ — Phase 0</h1>
       <p style={{ color: 'var(--color-muted)', marginTop: 0 }}>
-        Scaffold, migrations, and RLS verification. The participant test flow is Phase 1.
+        Scaffold, migrations, and RLS verification. Phase 2 adds the researcher admin panel and
+        the participant test flow.
       </p>
-      <p style={{ marginTop: 0 }}>
+      <p style={{ marginTop: 0, display: 'flex', gap: '1rem' }}>
         <a href="#/admin">Researcher admin panel &rarr;</a>
+        <a href="#/test">Participant test flow &rarr;</a>
       </p>
 
       <section

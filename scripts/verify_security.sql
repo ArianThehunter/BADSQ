@@ -1,17 +1,22 @@
 -- ============================================================================
--- BADSQ Platform — security verification suite (v3, post-migration 0005)
+-- BADSQ Platform — security verification suite (v4, post-migration 0006)
 --
 -- Run as `postgres` (Supabase SQL editor, or the MCP execute_sql tool).
 -- Re-runnable: PART 1 rebuilds all fixtures from scratch.
 --
--- v3 CHANGES vs v2 (post-0004). Migration 0005 changed one contract; everything
--- else is an ADDED assertion, not a relaxed one:
---   * G6 removed the participant's direct INSERT/UPDATE on `sessions`, so the
---     "P1 inserts its own sessions row" assertion inverted from "succeeds" to
---     "rejected". start_session() is now the sole entry point.
--- Assertions that were expected to FAIL before 0005 (G1, G2, G3, G7, and the
--- NULL-answer-key scoring hazard) now expect success. If they still fail, the
--- fix did not work.
+-- v4 CHANGES vs v3 (post-0005). Migration 0006 changed one contract; everything
+-- else is an ADDED assertion (PART 13), not a relaxed one:
+--   * `sessions_select_own` and `sessions_select_researcher` were consolidated
+--     into a single `sessions_select` policy. No assertion's EXPECTED outcome
+--     changed as a result -- owners and researchers still read what they could
+--     before, strangers still cannot -- only the policy name changed, which
+--     PART 13 checks for directly (exactly one SELECT policy on sessions).
+-- H1 (from the 0005 report) is fixed this migration: PUBLIC's EXECUTE grant on
+-- propagate_audio_rating/link_researcher_on_signup is finally revoked, closing
+-- the gap the 0005 revoke (targeted at anon/authenticated only) missed.
+-- save_item_version() is new: an atomic RPC for item editing, replacing the
+-- three-separate-statement saveNewVersion() the client used through Phase 1
+-- (see PHASE_1_REPORT.md deviation 5.2 / open question 9.2).
 --
 -- METHOD NOTE. Assertions that need a caller identity use the same mechanism
 -- PostgREST and storage-api use internally:
@@ -995,6 +1000,204 @@ begin
   perform verify.assert('view_drift_gate','allowlisted intentional aliases are declared and reviewed',
     'ml_export_v1.response_id', v_list, v_list = 'ml_export_v1.response_id');
 end $$;
+
+
+-- ============================================================================
+-- PART 13 — migration 0006: H1 (the PUBLIC-grant gap), save_item_version(),
+-- and the consolidated sessions SELECT policy.
+-- ============================================================================
+
+-- H1 FIX: has_function_privilege for BOTH client roles must be false, and the
+-- PUBLIC entry must be gone from the ACL entirely (that PUBLIC entry, not the
+-- anon/authenticated grants, is what 0005's revoke missed).
+do $$
+declare v_anon boolean; v_auth boolean; v_acl text;
+begin
+  select has_function_privilege('anon', p.oid, 'EXECUTE'), has_function_privilege('authenticated', p.oid, 'EXECUTE'),
+         coalesce(array_to_string(p.proacl,' '),'(default = PUBLIC)')
+  into v_anon, v_auth, v_acl
+  from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+  where n.nspname='public' and p.proname='propagate_audio_rating';
+  perform verify.assert('h1_fix','H1 FIX: propagate_audio_rating() -- anon/authenticated EXECUTE and the PUBLIC grant',
+    'anon=false, authenticated=false, no bare "=X/..." PUBLIC entry',
+    'anon='||v_anon||', authenticated='||v_auth||' | acl: '||v_acl,
+    not v_anon and not v_auth and v_acl not like '=X/%');
+end $$;
+
+do $$
+declare v_anon boolean; v_auth boolean; v_acl text;
+begin
+  select has_function_privilege('anon', p.oid, 'EXECUTE'), has_function_privilege('authenticated', p.oid, 'EXECUTE'),
+         coalesce(array_to_string(p.proacl,' '),'(default = PUBLIC)')
+  into v_anon, v_auth, v_acl
+  from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+  where n.nspname='public' and p.proname='link_researcher_on_signup';
+  perform verify.assert('h1_fix','H1 FIX: link_researcher_on_signup() -- anon/authenticated EXECUTE and the PUBLIC grant',
+    'anon=false, authenticated=false, no bare "=X/..." PUBLIC entry',
+    'anon='||v_anon||', authenticated='||v_auth||' | acl: '||v_acl,
+    not v_anon and not v_auth and v_acl not like '=X/%');
+end $$;
+
+-- save_item_version(): p_old_item_id = NULL creates version 1, inactive by default
+do $$
+declare v_id uuid; v_row items%rowtype; v_actual text; v_pass boolean := false;
+begin
+  begin
+    perform verify.become(verify.uid('R1'));
+    select save_item_version(null,
+      jsonb_build_object('item_code','VT.SIV1','domain','2','response_format','MCQ_TAP','scoring_mode','auto',
+                          'is_instruction_replayable',true,'is_stimulus_replayable',true,'stimulus_text','নতুন আইটেম'),
+      jsonb_build_array(
+        jsonb_build_object('option_key','A','option_text','সঠিক','is_correct',true),
+        jsonb_build_object('option_key','B','option_text','ভুল','is_correct',false)
+      )) into v_id;
+    perform verify.unbecome();
+    select * into v_row from items where id = v_id;
+    v_actual := 'version='||v_row.version||', active='||v_row.active;
+    v_pass := v_row.version = 1 and v_row.active = false;
+  exception when others then perform verify.unbecome(); v_actual := SQLSTATE||': '||SQLERRM;
+  end;
+  perform verify.assert('save_item_version','p_old_item_id=NULL creates version 1, inactive by default',
+    'version=1, active=false', v_actual, v_pass);
+end $$;
+
+-- superseding produces exactly one active version; options fully replaced
+do $$
+declare v_v1 uuid; v_v2 uuid; v_actual text; v_pass boolean := false;
+begin
+  select id into v_v1 from items where item_code='VT.SIV1' and version=1;
+  begin
+    perform verify.become(verify.uid('R1'));
+    select save_item_version(v_v1,
+      jsonb_build_object('item_code','VT.SIV1','domain','2','response_format','MCQ_TAP','scoring_mode','auto',
+                          'is_instruction_replayable',true,'is_stimulus_replayable',true,
+                          'stimulus_text','সংশোধিত আইটেম','active',true),
+      jsonb_build_array(
+        jsonb_build_object('option_key','A','option_text','নতুন সঠিক','is_correct',true),
+        jsonb_build_object('option_key','B','option_text','নতুন ভুল ১','is_correct',false),
+        jsonb_build_object('option_key','C','option_text','নতুন ভুল ২','is_correct',false)
+      )) into v_v2;
+    perform verify.unbecome();
+    v_actual := 'active count='||(select count(*) from items where item_code='VT.SIV1' and active)
+      ||', v1.active='||(select active from items where id=v_v1)
+      ||', v2.active='||(select active from items where id=v_v2)
+      ||', v2 options='||(select count(*) from item_options where item_id=v_v2)
+      ||', v1 options untouched='||(select count(*) from item_options where item_id=v_v1);
+    v_pass := (select count(*) from items where item_code='VT.SIV1' and active) = 1
+      and (select active from items where id=v_v1) = false
+      and (select active from items where id=v_v2) = true
+      and (select count(*) from item_options where item_id=v_v2) = 3
+      and (select count(*) from item_options where item_id=v_v1) = 2;
+  exception when others then perform verify.unbecome(); v_actual := SQLSTATE||': '||SQLERRM;
+  end;
+  perform verify.assert('save_item_version','superseding: exactly 1 active version, old options untouched, new options fully replaced',
+    '1 active (v2), v1 keeps its 2 options, v2 has its own 3', v_actual, v_pass);
+end $$;
+
+-- CRASH SHAPE: a deliberately failing option insert (duplicate option_key) must
+-- roll back the WHOLE call -- no orphan new version, superseded item untouched.
+do $$
+declare v_v2 uuid; v_err text; v_pass boolean := false;
+begin
+  select id into v_v2 from items where item_code='VT.SIV1' and version=2;
+  begin
+    perform verify.become(verify.uid('R1'));
+    perform save_item_version(v_v2,
+      jsonb_build_object('item_code','VT.SIV1','domain','2','response_format','MCQ_TAP','scoring_mode','auto',
+                          'is_instruction_replayable',true,'is_stimulus_replayable',true),
+      jsonb_build_array(
+        jsonb_build_object('option_key','A','option_text','x','is_correct',true),
+        jsonb_build_object('option_key','A','option_text','duplicate key -- forces unique_violation mid-loop','is_correct',false)
+      ));
+    v_err := 'ACCEPTED (unexpected)';
+  exception when others then v_pass := true; v_err := SQLSTATE||': '||SQLERRM;
+  end;
+  perform verify.unbecome();
+  perform verify.assert('save_item_version','CRASH SHAPE: duplicate option_key mid-insert raises unique_violation',
+    '23505', v_err, v_pass and v_err like '23505%');
+end $$;
+
+do $$
+declare v_v2 uuid; v_versions int; v_v2_active boolean; v_v3_exists boolean;
+begin
+  select id into v_v2 from items where item_code='VT.SIV1' and version=2;
+  select count(*) into v_versions from items where item_code='VT.SIV1';
+  select active into v_v2_active from items where id=v_v2;
+  select exists(select 1 from items where item_code='VT.SIV1' and version=3) into v_v3_exists;
+  perform verify.assert('save_item_version','CRASH SHAPE: no orphan v3, v2 (being superseded) still active -- not flipped',
+    '2 versions total, no v3, v2.active=true',
+    v_versions||' versions, v3 exists='||v_v3_exists||', v2.active='||v_v2_active,
+    v_versions = 2 and not v_v3_exists and v_v2_active = true);
+end $$;
+
+-- save_item_version() rejects a caller without can_manage_items (UOUT is
+-- authenticated but not on the researchers allowlist at all)
+do $$
+declare v_id uuid; v_err text; v_pass boolean := false;
+begin
+  begin
+    perform verify.become(verify.uid('UOUT'));
+    select save_item_version(null,
+      jsonb_build_object('item_code','VT.FORBIDDEN','domain','2','response_format','MCQ_TAP','scoring_mode','auto'),
+      '[]'::jsonb) into v_id;
+    v_err := 'ACCEPTED (unexpected) -- returned '||v_id::text;
+  exception when others then v_pass := true; v_err := SQLSTATE||': '||SQLERRM;
+  end;
+  perform verify.unbecome();
+  perform verify.assert('save_item_version','caller without can_manage_items is rejected',
+    'rejected', v_err, v_pass);
+end $$;
+
+do $$
+declare v_cnt int;
+begin
+  select count(*) into v_cnt from items where item_code='VT.FORBIDDEN';
+  perform verify.assert('save_item_version','rejected call left no item row behind',
+    '0 rows', v_cnt||' rows', v_cnt = 0);
+end $$;
+
+-- sessions now has exactly ONE SELECT policy, and owner/researcher/stranger
+-- access all still resolve exactly as before the consolidation.
+do $$
+declare v_n int; v_list text;
+begin
+  select count(*), coalesce(string_agg(policyname||' ['||cmd||']', ', '),'-') into v_n, v_list
+  from pg_policies where schemaname='public' and tablename='sessions' and cmd in ('SELECT','ALL');
+  perform verify.assert('sessions_policy','sessions has exactly ONE SELECT policy (was 2 before 0006)',
+    '1 policy: sessions_select', v_n||' policy(ies): '||v_list,
+    v_n = 1 and v_list = 'sessions_select [SELECT]');
+end $$;
+
+do $$
+declare v_sid uuid; v_own int; v_res int; v_stranger int;
+begin
+  perform verify.become(verify.uid('P1'));
+  select out_session_id into v_sid from start_session();
+  perform verify.unbecome();
+
+  perform verify.become(verify.uid('P1'));
+  select count(*) into v_own from sessions where id = v_sid;
+  perform verify.unbecome();
+
+  perform verify.become(verify.uid('R1'));
+  select count(*) into v_res from sessions where id = v_sid;
+  perform verify.unbecome();
+
+  perform verify.become(verify.uid('UOUT'));
+  select count(*) into v_stranger from sessions where id = v_sid;
+  perform verify.unbecome();
+
+  delete from sessions where id = v_sid;
+
+  perform verify.assert('sessions_policy','consolidated policy: owner sees it, researcher sees it, stranger does not',
+    'owner=1, researcher=1, stranger=0',
+    'owner='||v_own||', researcher='||v_res||', stranger='||v_stranger,
+    v_own = 1 and v_res = 1 and v_stranger = 0);
+end $$;
+
+-- Cleanup for this part's fixtures (items created via the RPC, not PART 1).
+delete from item_options where item_id in (select id from items where item_code in ('VT.SIV1','VT.FORBIDDEN'));
+delete from items where item_code in ('VT.SIV1','VT.FORBIDDEN');
 
 
 -- ============================================================================

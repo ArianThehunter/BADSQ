@@ -280,12 +280,28 @@ console.log('='.repeat(78));
     'denied or 0 rows affected', line(r), r.status >= 400 || r.rowCount === 0);
 }
 for (const fn of ['propagate_audio_rating', 'link_researcher_on_signup']) {
-  // These are trigger functions. 0005 revoked EXECUTE from anon/authenticated,
-  // though the PUBLIC grant remains (see the report). Independently of that,
-  // PostgREST does not expose trigger-returning functions at all.
+  // These are trigger functions. 0005 revoked EXECUTE from anon/authenticated
+  // directly; 0006 additionally revoked it from PUBLIC (see H1 in the 0005
+  // report -- the 0005 revoke missed the PUBLIC grant those roles inherited
+  // from, so has_function_privilege still returned true for both roles until
+  // 0006). Independently of the SQL-level grant, PostgREST has never exposed
+  // trigger-returning functions as callable RPCs at all -- both facts are
+  // true and distinct; this assertion covers the wire behaviour only.
   const r = await probe('POST', `/rest/v1/rpc/${fn}`, { body: '{}' });
   record(`anon POST /rest/v1/rpc/${fn} (trigger function must not be RPC surface)`,
     'not callable', line(r), r.status >= 400);
+}
+
+// ------------------------------------------------- migration 0006 surfaces
+{
+  // save_item_version() is granted to `authenticated` only (never anon, never
+  // PUBLIC) and additionally gated by can_manage_items() inside the function.
+  // As anon this must fail at the grant layer before the function body even
+  // runs.
+  const r = await probe('POST', '/rest/v1/rpc/save_item_version',
+    { body: JSON.stringify({ p_old_item_id: null, p_item: {}, p_options: [] }) });
+  record('anon POST /rest/v1/rpc/save_item_version',
+    'denied', line(r), r.status >= 400);
 }
 
 // -------------------------------------------------------------------- auth
