@@ -397,7 +397,8 @@ gitignored.
 
 ## 10. State of the repo
 
-- **Branch:** `main`, to be pushed to `https://github.com/ArianThehunter/BADSQ`
+- **Branch:** `main`, pushed to `https://github.com/ArianThehunter/BADSQ`
+- **Commit:** `8675733` — "Phase 2: migration 0006 (H1 fix + atomic item versioning), TestRunner and the six response components"
 - **Supabase project:** `badsq-platform`, ref `gfxdhqkxetuoetzzrxxq`, region `ap-south-1`, Postgres 17.6, Free plan
 - **Migration state:** 0001–0006 all applied. Database contains **no data** — every fixture, session, participant, response, and anonymous auth user created during this phase's verification and browser testing was deleted; confirmed by direct count. One piece of pre-existing, undeletable-by-SQL debris remains in `badsq-audio` from an earlier turn (§4.5) — not new, not fixture-created this pass, requires a researcher Storage session to remove.
 
