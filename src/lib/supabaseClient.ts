@@ -41,14 +41,12 @@ export const supabase: SupabaseClient<Database> = createClient<Database>(
       // same auth.uid() still owns their `sessions` row.
       persistSession: true,
       autoRefreshToken: true,
-      // CHANGED IN PHASE 1. Phase 0 set this false on the reasoning that "no
-      // OAuth redirects are used" — but researcher magic-link login IS a
-      // redirect flow, and with it false the returning link would never
-      // establish a session. PKCE is chosen over the implicit flow so the
-      // redirect carries a short-lived single-use `code` in the query string
-      // rather than access/refresh tokens in the URL fragment.
-      detectSessionInUrl: true,
-      flowType: 'pkce',
+      // REVERTED IN PHASE 3 to Phase 0's original setting. Phase 1 set these
+      // true/'pkce' specifically for the magic-link redirect flow. Phase 3
+      // replaced magic-link with signInWithPassword(), which returns the
+      // session directly from the call — there is no redirect to parse, so
+      // this reasoning no longer applies.
+      detectSessionInUrl: false,
     },
     global: {
       headers: { 'x-application-name': 'badsq-platform' },
@@ -92,25 +90,39 @@ export type ResearcherProfile = {
 };
 
 /**
- * Send a magic link to a researcher.
+ * Sign in a researcher with email + password.
+ *
+ * CHANGED IN PHASE 3. Magic-link sign-in (`signInWithOtp`) depended on outbound
+ * email twice causing real problems: an SMTP rate limit in Phase 1, then a
+ * "Failed to fetch" that turned out to be the Supabase project auto-pausing
+ * after 7 days idle on the Free plan (mistaken at first for an auth bug).
+ * Accounts are now created directly in the Supabase dashboard by a human
+ * (Authentication -> Users -> Add user) — there is no sign-up path here, and
+ * none should be added: `signInWithPassword` cannot create an account, so this
+ * is not something this function has to additionally guard against.
  *
  * Being on the `researchers` allowlist is NOT checked here, and cannot be:
  * `researchers` is readable only by an already-allowlisted user, so an
- * unauthorised address would learn nothing either way. Anyone may request a
- * link; authorisation is decided after sign-in by loadResearcherProfile(), and
- * enforced for real by RLS on every table.
+ * unauthorised address would learn nothing either way. Authorisation is
+ * decided after sign-in by loadResearcherProfile(), and enforced for real by
+ * RLS on every table.
  */
-export async function sendResearcherMagicLink(email: string): Promise<void> {
-  const { error } = await supabase.auth.signInWithOtp({
+/** Carries GoTrue's error `code` (e.g. `invalid_credentials`, `email_not_confirmed`)
+ * so the UI can distinguish failure reasons instead of showing one generic message. */
+export class ResearcherSignInError extends Error {
+  code: string | undefined;
+  constructor(message: string, code: string | undefined) {
+    super(message);
+    this.code = code;
+  }
+}
+
+export async function signInResearcher(email: string, password: string): Promise<void> {
+  const { error } = await supabase.auth.signInWithPassword({
     email: email.trim().toLowerCase(),
-    options: {
-      emailRedirectTo: `${window.location.origin}${window.location.pathname}#/admin`,
-      // Researchers are pre-provisioned in the allowlist. Never let a magic-link
-      // request create a brand-new auth user.
-      shouldCreateUser: false,
-    },
+    password,
   });
-  if (error) throw new Error(error.message);
+  if (error) throw new ResearcherSignInError(error.message, error.code);
 }
 
 /**

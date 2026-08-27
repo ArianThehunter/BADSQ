@@ -1,8 +1,21 @@
 -- ============================================================================
--- BADSQ Platform — security verification suite (v4, post-migration 0006)
+-- BADSQ Platform — security verification suite (v5, post-migration 0007)
 --
 -- Run as `postgres` (Supabase SQL editor, or the MCP execute_sql tool).
 -- Re-runnable: PART 1 rebuilds all fixtures from scratch.
+--
+-- v5 CHANGES vs v4 (post-0006). Migration 0007 fixes I1 (PHASE_2_REPORT.md
+-- §6): badsq-audio had an INSERT policy for participants but no SELECT
+-- policy, and Storage's upsert codepath needs one via INSERT...RETURNING.
+-- PART 9's storage assertions are REWRITTEN, not just extended: every INSERT
+-- there now ends in `returning id`, because a bare INSERT (no RETURNING) does
+-- NOT exercise the failure I1 actually was — the old assertions all passed
+-- right through the entire time I1 existed. Two new SELECT-policy assertions
+-- (own-read succeeds, cross-session read fails) are added alongside. PART 14
+-- covers the rest of 0007: the new policy exists, both auth_rls_initplan
+-- fixes wrap auth.uid() correctly AND still enforce the same access
+-- boundaries afterward, and selection_change_count exists with the right
+-- shape.
 --
 -- v4 CHANGES vs v3 (post-0005). Migration 0006 changed one contract; everything
 -- else is an ADDED assertion (PART 13), not a relaxed one:
@@ -695,71 +708,132 @@ end $$;
 
 -- ============================================================================
 -- PART 9 — storage
+--
+-- CHANGED IN v5 (post-0007, I1). Every INSERT here now ends in `returning id`.
+-- This is not cosmetic: I1 (PHASE_2_REPORT.md §6) was a case where every one of
+-- these assertions' *boolean* WITH CHECK condition was true, and a bare INSERT
+-- with no RETURNING clause genuinely succeeded — but the real Storage API's
+-- upsert codepath internally needs `INSERT ... ON CONFLICT DO UPDATE ...
+-- RETURNING *`, which additionally requires a satisfying SELECT policy, and
+-- badsq-audio had none for participants. A suite that only checks "does INSERT
+-- succeed" cannot see that gap; one that checks "does INSERT ... RETURNING
+-- succeed" can, because RETURNING is exactly where Postgres additionally
+-- requires SELECT-visibility of the new row. Closed the same way the
+-- view-drift gate was closed after F5/G1: stop testing the easy case and start
+-- testing the shape of the actual defect.
 -- ============================================================================
+-- NOTE: this insert is deliberately NOT rolled back via the raise/catch
+-- savepoint idiom used elsewhere in this file — the two SELECT-policy
+-- assertions immediately below need the row to still be there afterward. It
+-- is cleaned up for real (via storage.allow_delete_query, the same mechanism
+-- the real Storage API uses to get past the protect_delete trigger) at the
+-- end of this section.
 do $$
-declare v_ok boolean := false; v_actual text;
+declare v_ok boolean := false; v_actual text; v_id uuid;
 begin
   begin
     perform verify.become(verify.uid('P1'));
     insert into storage.objects (bucket_id,name,owner,owner_id)
-    values ('badsq-audio', verify.sid('S4')::text||'/aud-own.webm', verify.uid('P1'), verify.uid('P1')::text);
-    v_ok := true; perform verify.unbecome();
-    raise exception using errcode='ZZ002', message='__UNDO__';
-  exception when others then
-    perform verify.unbecome();
-    if SQLERRM <> '__UNDO__' then v_ok := false; v_actual := SQLSTATE||': '||SQLERRM; end if;
+    values ('badsq-audio', verify.sid('S4')::text||'/aud-own.webm', verify.uid('P1'), verify.uid('P1')::text)
+    returning id into v_id;
+    v_ok := v_id is not null;
+  exception when others then v_ok := false; v_actual := SQLSTATE||': '||SQLERRM;
   end;
-  perform verify.assert('storage','P1 uploads to badsq-audio/<own in_progress session>/',
-    'INSERT succeeds', coalesce(v_actual,'INSERT succeeded'), v_ok);
+  perform verify.unbecome();
+  perform verify.assert('storage','P1 uploads to badsq-audio/<own in_progress session>/, via INSERT...RETURNING (the I1 shape)',
+    'INSERT...RETURNING succeeds', coalesce(v_actual,'INSERT...RETURNING succeeded, id returned'), v_ok);
 end $$;
 
 do $$
-declare v_blocked boolean := false; v_actual text;
+declare v_blocked boolean := false; v_actual text; v_id uuid;
 begin
   begin
     perform verify.become(verify.uid('P1'));
     insert into storage.objects (bucket_id,name,owner,owner_id)
-    values ('badsq-audio', verify.sid('S2')::text||'/steal.webm', verify.uid('P1'), verify.uid('P1')::text);
+    values ('badsq-audio', verify.sid('S2')::text||'/steal.webm', verify.uid('P1'), verify.uid('P1')::text)
+    returning id into v_id;
     v_actual := 'INSERT UNEXPECTEDLY SUCCEEDED'; perform verify.unbecome();
     raise exception using errcode='ZZ003', message='__UNDO__';
   exception when others then
     perform verify.unbecome();
     if SQLERRM='__UNDO__' then v_blocked := false; else v_blocked := true; v_actual := SQLSTATE||': '||SQLERRM; end if;
   end;
-  perform verify.assert('storage','P1 uploads to another participant''s session folder','rejected', v_actual, v_blocked);
+  perform verify.assert('storage','P1 uploads to another participant''s session folder, via INSERT...RETURNING','rejected', v_actual, v_blocked);
+end $$;
+
+-- I1's fix (audio_select_own_session): P1 can read back their own upload, a
+-- stranger cannot. These are genuine SELECT-policy assertions, not inferred
+-- from the INSERT...RETURNING checks above.
+do $$
+declare v_ok boolean := false; v_actual text; v_cnt int;
+begin
+  begin
+    perform verify.become(verify.uid('P1'));
+    select count(*) into v_cnt from storage.objects
+      where bucket_id='badsq-audio' and name = verify.sid('S4')::text||'/aud-own.webm';
+    perform verify.unbecome();
+    v_ok := v_cnt = 1; v_actual := v_cnt::text||' row(s) visible';
+  exception when others then perform verify.unbecome(); v_actual := SQLSTATE||': '||SQLERRM;
+  end;
+  perform verify.assert('storage','P1 can SELECT their own uploaded audio object',
+    '1 row visible', v_actual, v_ok);
 end $$;
 
 do $$
-declare v_ok boolean := false; v_actual text;
+declare v_ok boolean := false; v_actual text; v_cnt int;
+begin
+  begin
+    perform verify.become(verify.uid('P2'));
+    select count(*) into v_cnt from storage.objects
+      where bucket_id='badsq-audio' and name = verify.sid('S4')::text||'/aud-own.webm';
+    perform verify.unbecome();
+    v_ok := v_cnt = 0; v_actual := v_cnt::text||' row(s) visible';
+  exception when others then perform verify.unbecome(); v_actual := SQLSTATE||': '||SQLERRM;
+  end;
+  perform verify.assert('storage','P2 cannot SELECT P1''s uploaded audio object (cross-session read isolation)',
+    '0 rows visible', v_actual, v_ok);
+end $$;
+
+-- Real cleanup for the row inserted above (protect_delete blocks a bare
+-- DELETE; this is the same GUC the real Storage API sets internally before
+-- its own deletes).
+select set_config('storage.allow_delete_query','true',true);
+delete from storage.objects where bucket_id='badsq-audio' and name = verify.sid('S4')::text||'/aud-own.webm';
+select set_config('storage.allow_delete_query','false',true);
+
+do $$
+declare v_ok boolean := false; v_actual text; v_id uuid;
 begin
   begin
     perform verify.become(verify.uid('R1'));
     insert into storage.objects (bucket_id,name,owner,owner_id)
-    values ('badsq-item-audio','instr/vt-mcq1.mp3', verify.uid('R1'), verify.uid('R1')::text);
-    v_ok := true; perform verify.unbecome();
+    values ('badsq-item-audio','instr/vt-mcq1.mp3', verify.uid('R1'), verify.uid('R1')::text)
+    returning id into v_id;
+    v_ok := v_id is not null; perform verify.unbecome();
     raise exception using errcode='ZZ007', message='__UNDO__';
   exception when others then
     perform verify.unbecome();
     if SQLERRM <> '__UNDO__' then v_ok := false; v_actual := SQLSTATE||': '||SQLERRM; end if;
   end;
-  perform verify.assert('item_audio','researcher with can_manage_items uploads item audio',
-    'INSERT succeeds', coalesce(v_actual,'INSERT succeeded'), v_ok);
+  perform verify.assert('item_audio','researcher with can_manage_items uploads item audio, via INSERT...RETURNING',
+    'INSERT...RETURNING succeeds', coalesce(v_actual,'INSERT...RETURNING succeeded, id returned'), v_ok);
 end $$;
 
 do $$
-declare v_blocked boolean := false; v_actual text;
+declare v_blocked boolean := false; v_actual text; v_id uuid;
 begin
   begin
     perform verify.become(verify.uid('P1'));
     insert into storage.objects (bucket_id,name,owner,owner_id)
-    values ('badsq-item-audio','instr/forged.mp3', verify.uid('P1'), verify.uid('P1')::text);
+    values ('badsq-item-audio','instr/forged.mp3', verify.uid('P1'), verify.uid('P1')::text)
+    returning id into v_id;
     v_actual := 'INSERT UNEXPECTEDLY SUCCEEDED'; perform verify.unbecome();
     raise exception using errcode='ZZ008', message='__UNDO__';
   exception when others then
     perform verify.unbecome();
     if SQLERRM='__UNDO__' then v_blocked := false; else v_blocked := true; v_actual := SQLSTATE||': '||SQLERRM; end if;
   end;
-  perform verify.assert('item_audio','participant uploads to badsq-item-audio','rejected', v_actual, v_blocked);
+  perform verify.assert('item_audio','participant uploads to badsq-item-audio, via INSERT...RETURNING','rejected', v_actual, v_blocked);
 end $$;
 
 
@@ -1198,6 +1272,86 @@ end $$;
 -- Cleanup for this part's fixtures (items created via the RPC, not PART 1).
 delete from item_options where item_id in (select id from items where item_code in ('VT.SIV1','VT.FORBIDDEN'));
 delete from items where item_code in ('VT.SIV1','VT.FORBIDDEN');
+
+
+-- ============================================================================
+-- PART 14 — migration 0007: I1 fix structural checks, auth_rls_initplan fix,
+-- selection_change_count. The functional I1 fix itself (INSERT...RETURNING
+-- succeeding, cross-session read isolation) is PART 9, above, since that is
+-- where the storage assertions already live.
+-- ============================================================================
+do $$
+declare v_def text;
+begin
+  select pg_get_expr(polwithcheck, polrelid) into v_def
+  from pg_policy where polname='audio_select_own_session' and polrelid = 'storage.objects'::regclass;
+  perform verify.assert('i1_fix','audio_select_own_session policy exists on storage.objects',
+    'a SELECT policy scoped to badsq-audio + own in_progress-session-owning auth_uid',
+    coalesce((select pg_get_expr(polqual, polrelid) from pg_policy
+      where polname='audio_select_own_session' and polrelid='storage.objects'::regclass), 'MISSING'),
+    v_def is null and exists (select 1 from pg_policy
+      where polname='audio_select_own_session' and polrelid='storage.objects'::regclass and polcmd='r'));
+end $$;
+
+do $$
+declare v_sessions_def text; v_participants_def text;
+begin
+  select pg_get_expr(polqual, polrelid) into v_sessions_def
+  from pg_policy where polname='sessions_select' and polrelid='sessions'::regclass;
+  select pg_get_expr(polwithcheck, polrelid) into v_participants_def
+  from pg_policy where polname='participants_insert_own' and polrelid='participants'::regclass;
+  perform verify.assert('i1_fix','sessions_select wraps auth.uid() in a subquery (auth_rls_initplan fix)',
+    'definition contains "( SELECT auth.uid() AS uid)" or equivalent, not a bare auth.uid() call',
+    coalesce(v_sessions_def,'MISSING'),
+    v_sessions_def ilike '%select auth.uid()%');
+  perform verify.assert('i1_fix','participants_insert_own wraps auth.uid() in a subquery (auth_rls_initplan fix)',
+    'definition contains "( SELECT auth.uid() AS uid)" or equivalent, not a bare auth.uid() call',
+    coalesce(v_participants_def,'MISSING'),
+    v_participants_def ilike '%select auth.uid()%');
+end $$;
+
+do $$
+declare v_ok boolean;
+begin
+  select (data_type='integer' and is_nullable='NO' and column_default='0') into v_ok
+  from information_schema.columns
+  where table_schema='public' and table_name='responses' and column_name='selection_change_count';
+  perform verify.assert('i1_fix','responses.selection_change_count exists: integer, not null, default 0',
+    'true', coalesce(v_ok::text,'COLUMN MISSING'), coalesce(v_ok,false));
+end $$;
+
+-- sessions_select and participants_insert_own still enforce the exact same
+-- boundaries after the rewrite for the initplan fix — a rewritten policy
+-- expression is exactly the kind of change that could silently loosen or
+-- break access while "still passing" a stale assertion, so re-run the
+-- functional owner/researcher/stranger check from PART 13 against the
+-- REWRITTEN policy, not just check its text shape above.
+do $$
+declare v_sid uuid; v_own int; v_res int; v_stranger int;
+begin
+  perform verify.become(verify.uid('P1'));
+  select out_session_id into v_sid from start_session();
+  perform verify.unbecome();
+
+  perform verify.become(verify.uid('P1'));
+  select count(*) into v_own from sessions where id = v_sid;
+  perform verify.unbecome();
+
+  perform verify.become(verify.uid('R1'));
+  select count(*) into v_res from sessions where id = v_sid;
+  perform verify.unbecome();
+
+  perform verify.become(verify.uid('UOUT'));
+  select count(*) into v_stranger from sessions where id = v_sid;
+  perform verify.unbecome();
+
+  delete from sessions where id = v_sid;
+
+  perform verify.assert('i1_fix','post-rewrite sessions_select: owner sees it, researcher sees it, stranger does not',
+    'owner=1, researcher=1, stranger=0',
+    'owner='||v_own||', researcher='||v_res||', stranger='||v_stranger,
+    v_own = 1 and v_res = 1 and v_stranger = 0);
+end $$;
 
 
 -- ============================================================================

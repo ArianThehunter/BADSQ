@@ -9,14 +9,17 @@
 import { useEffect, useState } from 'react';
 import { signOut, type ResearcherProfile } from '../lib/supabaseClient';
 import ItemBankEditor from './ItemBankEditor';
+import ParticipantsView from './ParticipantsView';
+import RatingQueue from './RatingQueue';
+import HealthView from './HealthView';
 
 type Tab = 'items' | 'participants' | 'rating' | 'health';
 
 const TABS: { id: Tab; label: string; phase: string | null }[] = [
   { id: 'items', label: 'Item bank', phase: null },
-  { id: 'participants', label: 'Participants', phase: 'Phase 2' },
-  { id: 'rating', label: 'Rating queue', phase: 'Phase 2' },
-  { id: 'health', label: 'Health', phase: 'Phase 2' },
+  { id: 'participants', label: 'Participants', phase: null },
+  { id: 'rating', label: 'Rating queue', phase: null },
+  { id: 'health', label: 'Health', phase: null },
 ];
 
 function readTab(): Tab {
@@ -75,16 +78,10 @@ export default function AdminShell({
       </nav>
 
       <main className="admin-main">
-        {tab === 'items' ? (
-          <ItemBankEditor profile={profile} />
-        ) : (
-          <div className="notice">
-            <strong>{TABS.find((t) => t.id === tab)?.label}</strong> is not built yet — it is Phase 2
-            work. The item bank is the priority this phase because item authoring and Bangla audio
-            recording are slow human tasks that must start in parallel with participant-flow
-            development.
-          </div>
-        )}
+        {tab === 'items' && <ItemBankEditor profile={profile} />}
+        {tab === 'participants' && <ParticipantsView />}
+        {tab === 'rating' && <RatingQueue profile={profile} />}
+        {tab === 'health' && <HealthView />}
       </main>
     </div>
   );

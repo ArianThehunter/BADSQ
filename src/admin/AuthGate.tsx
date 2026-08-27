@@ -1,23 +1,30 @@
 /**
  * Researcher authentication gate.
  *
- * Magic link only — no passwords anywhere in this system. Participants use
- * anonymous sign-in; researchers use a link sent to an address that must already
- * be on the `researchers` allowlist.
+ * CHANGED IN PHASE 3: email + password, not a magic link. Accounts are created
+ * only via the Supabase dashboard by a human (Authentication -> Users -> Add
+ * user) — there is no sign-up form here, and none should be added.
+ * `signInWithPassword` cannot create an account on its own, so that property
+ * holds without this component doing anything extra to enforce it.
  *
- * Two distinct states are deliberately kept apart:
- *   - not signed in            -> ask for an email
- *   - signed in, not allowlisted -> say so plainly and offer sign out
- * The second is not an error to hide. RLS means such a user can read nothing,
- * but telling them "you are signed in as X and X is not on the allowlist" is far
- * easier to act on than an empty screen.
+ * Three distinct states are deliberately kept apart:
+ *   - not signed in                -> ask for email + password
+ *   - signed in, not allowlisted   -> say so plainly and offer sign out
+ *   - wrong credentials / unconfirmed email -> shown inline on the form, not
+ *     conflated with "not allowlisted" (a wrong password and a correct
+ *     password for an unauthorised address are different problems with
+ *     different fixes)
+ * The middle state is not an error to hide. RLS means such a user can read
+ * nothing, but telling them "you are signed in as X and X is not on the
+ * allowlist" is far easier to act on than an empty screen.
  */
 
 import { useCallback, useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import {
   supabase,
-  sendResearcherMagicLink,
+  signInResearcher,
+  ResearcherSignInError,
   loadResearcherProfile,
   signOut,
   type ResearcherProfile,
@@ -36,8 +43,8 @@ export default function AuthGate({
 }) {
   const [state, setState] = useState<AuthState>({ kind: 'loading' });
   const [email, setEmail] = useState('');
-  const [sending, setSending] = useState(false);
-  const [sent, setSent] = useState(false);
+  const [password, setPassword] = useState('');
+  const [signingIn, setSigningIn] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const resolve = useCallback(async () => {
@@ -62,17 +69,26 @@ export default function AuthGate({
     return () => sub.subscription.unsubscribe();
   }, [resolve]);
 
-  async function handleSend(e: React.FormEvent) {
+  async function handleSignIn(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-    setSending(true);
+    setSigningIn(true);
     try {
-      await sendResearcherMagicLink(email);
-      setSent(true);
+      await signInResearcher(email, password);
+      // resolve() runs automatically via the onAuthStateChange listener above.
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      if (err instanceof ResearcherSignInError && err.code === 'email_not_confirmed') {
+        setError(
+          'This account exists but has not been confirmed. Ask a project administrator to ' +
+            'confirm it directly in the Supabase dashboard (Authentication -> Users).',
+        );
+      } else if (err instanceof ResearcherSignInError && err.code === 'invalid_credentials') {
+        setError('Incorrect email or password.');
+      } else {
+        setError(err instanceof Error ? err.message : String(err));
+      }
     } finally {
-      setSending(false);
+      setSigningIn(false);
     }
   }
 
@@ -114,46 +130,38 @@ export default function AuthGate({
     <div className="auth-card">
       <h1>BADSQ — researcher sign in</h1>
       <p className="muted">
-        Enter your allowlisted address and we will email you a sign-in link. There is no password.
+        Sign in with your researcher account. Accounts are created by a project administrator —
+        there is no self-service sign-up.
       </p>
 
-      {sent ? (
-        <div className="notice notice-ok" role="status">
-          <p>
-            If <strong>{email}</strong> is on the allowlist, a sign-in link is on its way. Open it
-            on this device — the link completes the sign-in here.
-          </p>
-          <button
-            type="button"
-            onClick={() => {
-              setSent(false);
-              setEmail('');
-            }}
-          >
-            Use a different address
-          </button>
-        </div>
-      ) : (
-        <form onSubmit={handleSend}>
-          <label htmlFor="researcher-email">Email address</label>
-          <input
-            id="researcher-email"
-            type="email"
-            required
-            autoComplete="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="you@example.org"
-          />
-          <button type="submit" disabled={sending || !email.trim()}>
-            {sending ? 'Sending…' : 'Email me a sign-in link'}
-          </button>
-        </form>
-      )}
+      <form onSubmit={handleSignIn}>
+        <label htmlFor="researcher-email">Email address</label>
+        <input
+          id="researcher-email"
+          type="email"
+          required
+          autoComplete="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          placeholder="you@example.org"
+        />
+        <label htmlFor="researcher-password">Password</label>
+        <input
+          id="researcher-password"
+          type="password"
+          required
+          autoComplete="current-password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+        />
+        <button type="submit" disabled={signingIn || !email.trim() || !password}>
+          {signingIn ? 'Signing in…' : 'Sign in'}
+        </button>
+      </form>
 
       {error && (
         <div className="notice notice-error" role="alert">
-          <strong>Could not send the link.</strong> {error}
+          <strong>Could not sign in.</strong> {error}
         </div>
       )}
     </div>
