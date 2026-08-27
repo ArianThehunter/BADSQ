@@ -1,8 +1,18 @@
 -- ============================================================================
--- BADSQ Platform — security verification suite (v5, post-migration 0007)
+-- BADSQ Platform — security verification suite (v6, post-migration 0008)
 --
 -- Run as `postgres` (Supabase SQL editor, or the MCP execute_sql tool).
 -- Re-runnable: PART 1 rebuilds all fixtures from scratch.
+--
+-- v6 CHANGES vs v5 (post-0007). Migration 0008 replaces submit_session()'s
+-- guard clause (four separate raise points collapsed into one WHERE + a NULL
+-- check) and adds automatic random reliability-subsample assignment. PART 7's
+-- existing assertions (owner-succeeds, non-owner-rejected, re-submit-rejected,
+-- assigned-code-NULL-rejected, atomicity-rollback) already exercise whatever
+-- submit_session() currently is via role impersonation — they were re-run
+-- against the rewritten function and all five still pass unchanged, so they
+-- were NOT duplicated here; PART 15 covers only what's actually new: the rate
+-- function and the random-assignment distribution itself.
 --
 -- v5 CHANGES vs v4 (post-0006). Migration 0007 fixes I1 (PHASE_2_REPORT.md
 -- §6): badsq-audio had an INSERT policy for participants but no SELECT
@@ -1351,6 +1361,64 @@ begin
     'owner=1, researcher=1, stranger=0',
     'owner='||v_own||', researcher='||v_res||', stranger='||v_stranger,
     v_own = 1 and v_res = 1 and v_stranger = 0);
+end $$;
+
+
+-- ============================================================================
+-- PART 15 — migration 0008: reliability_subsample_rate() and automatic
+-- random assignment. The manual-override UPDATE path (Phase 3's
+-- setReliabilitySubsample()) is unaffected by 0008 and not re-tested here.
+-- ============================================================================
+do $$
+declare v_rate double precision;
+begin
+  select reliability_subsample_rate() into v_rate;
+  perform verify.assert('reliability_subsample','reliability_subsample_rate() returns 0.20',
+    '0.2', coalesce(v_rate::text,'NULL'), v_rate = 0.2);
+end $$;
+
+-- Distribution sanity check: 40 real submit_session() calls, each with one
+-- audio response, checking roughly 20% land true. Not a tight tolerance --
+-- this is a random process (see PHASE_4_REPORT.md for the exact band chosen).
+do $$
+declare
+  v_item uuid;
+  v_sid uuid; v_i int; v_true_count int; v_total int := 40;
+  v_sids uuid[] := '{}';
+begin
+  insert into items (item_code, version, domain, subdomain, response_format, stimulus_text,
+                     is_instruction_replayable, is_stimulus_replayable, scoring_mode,
+                     is_practice, is_scored, display_order, active)
+  values ('VT.SUBSAMPLE',1,'5','5.2','AUDIO_RECORD','test', true, true, 'human_rated', false, true, 999, true)
+  returning id into v_item;
+
+  for v_i in 1..v_total loop
+    perform verify.become(verify.uid('P1'));
+    select out_session_id into v_sid from start_session();
+    perform submit_session(v_sid, jsonb_build_object('class_grade','7'),
+      jsonb_build_array(jsonb_build_object('item_id',v_item::text,'input_modality','touch',
+        'audio_storage_path',v_sid::text||'/r'||v_i||'.webm','audio_mime_type','audio/webm')));
+    perform verify.unbecome();
+    v_sids := array_append(v_sids, v_sid);
+  end loop;
+
+  select count(*) into v_true_count from audio_recordings ar
+    join responses r on r.id = ar.response_id
+    where r.session_id = any(v_sids) and ar.is_reliability_subsample = true;
+
+  -- cleanup (children first)
+  delete from audio_recordings where response_id in (select id from responses where session_id = any(v_sids));
+  delete from responses where session_id = any(v_sids);
+  update sessions set participant_id = null where id = any(v_sids);
+  delete from participants where anonymized_code in (select assigned_code from sessions where id = any(v_sids));
+  delete from sessions where id = any(v_sids);
+  delete from items where id = v_item;
+
+  perform verify.assert('reliability_subsample',
+    'automatic assignment over '||v_total||' real submit_session() calls lands roughly 20%',
+    'sane range for p=0.2, n='||v_total||' (e.g. 2-20)',
+    v_true_count||' / '||v_total,
+    v_true_count between 2 and 20);
 end $$;
 
 

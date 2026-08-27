@@ -6,10 +6,13 @@
  * which copies is_correct/scored_by onto the linked response row — this
  * component never writes to `responses` directly.
  *
- * is_reliability_subsample has no automatic assignment anywhere in the schema
- * (checked: submit_session() never sets it). Surfacing it "visibly" per the
- * brief therefore includes a way to actually set it — a Phase 3 addition
- * beyond the literal ask, documented in PHASE_3_REPORT.md.
+ * is_reliability_subsample is assigned automatically at submission time
+ * (migration 0008, reliability_subsample_rate() — 20% by default) so the
+ * double-scored sample is unbiased by construction rather than rater-chosen.
+ * The checkbox below is a manual OVERRIDE on top of that random baseline —
+ * not the primary assignment mechanism. See PHASE_3_REPORT.md for why it
+ * started as manual-only, and PHASE_4_REPORT.md for why that was a
+ * methodological problem worth fixing before any real kappa gets computed.
  */
 
 import { useCallback, useEffect, useState } from 'react';

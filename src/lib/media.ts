@@ -71,6 +71,12 @@ export async function uploadItemAudio(
  * is stable across retries: a failed submit that is retried re-uploads to the
  * SAME path rather than accumulating orphaned blobs per attempt.
  */
+/**
+ * CHANGED IN PHASE 4: `upsert: true` removed (was I1's other viable fix,
+ * independent of the badsq-audio SELECT policy — see PHASE_4_REPORT.md).
+ * `responseClientId` is a fresh UUID per response, so this path can never
+ * collide with an existing object; upsert semantics were never needed here.
+ */
 export async function uploadParticipantAudio(
   sessionId: string,
   responseClientId: string,
@@ -81,7 +87,7 @@ export async function uploadParticipantAudio(
   const path = `${sessionId}/${responseClientId}.${ext}`;
   const { error } = await supabase.storage
     .from(AUDIO_BUCKET)
-    .upload(path, blob, { contentType: mimeType, upsert: true });
+    .upload(path, blob, { contentType: mimeType });
   if (error) fail('Recording upload failed', error);
   return path;
 }

@@ -3,10 +3,12 @@
 Data-collection instrument for a dyslexia screening study with 12–14 year old participants
 in Bangladesh. Vite + React + TypeScript client, Supabase (Postgres + Storage + Auth) backend.
 
-**Current phase: 3 — I1 fixed, researcher admin surfaces complete.** Researcher sign-in is now
-email + password (no email delivery dependency). The full six-format participant flow, including
-AUDIO_RECORD, works end to end. RatingQueue, ParticipantsView, and HealthView are built and
-verified against a real signed-in researcher session.
+**Current phase: 4 — unbiased reliability sampling, defense-in-depth on I1, deployment prepared.**
+Reliability-subsample assignment is now automatic and random at submission time (not rater-chosen)
+so the Cohen's kappa the Development Report commits to reporting isn't biased by which recordings
+a rater happened to pick. The `upsert:true` that made I1 exploitable is removed, independent of the
+Phase 3 policy fix. The app is ready to deploy to Vercel/Netlify's free tier — zero server config
+needed — with the deployment itself handed off to the researcher (see §Deployment below).
 
 Read the reports in order: [PHASE_0_REPORT.md](PHASE_0_REPORT.md) found seven defects (F1–F7) in
 migrations 0001–0003; [MIGRATION_0004_REPORT.md](MIGRATION_0004_REPORT.md) fixed those and found
@@ -19,8 +21,10 @@ audio recordings cannot be submitted at all**; [PHASE_3_REPORT.md](PHASE_3_REPOR
 magic-link auth with email+password, fixes I1 (migration 0007), resolves the Phase 2 curl
 discrepancy (it was neither hypothesis — see the report), closes the verification suite's own
 blind spot that let I1 through for two phases, and builds RatingQueue/ParticipantsView/HealthView
-against a real researcher session for the first time — including one full record → submit → rate →
-export pipeline run.
+against a real researcher session for the first time; [PHASE_4_REPORT.md](PHASE_4_REPORT.md) fixes
+the reliability-subsample assignment mechanism (migration 0008), removes I1's other root cause as
+defense in depth, finds **J1** (one function missing this project's own search_path invariant —
+assessed as not currently exploitable, not fixed), and prepares the app for real deployment.
 
 ## Privacy posture
 
@@ -53,10 +57,12 @@ Beyond that, dashboard steps that are **not** automatable:
    [PHASE_3_REPORT.md](PHASE_3_REPORT.md) §4.2.
 5. Enable **Leaked Password Protection** (Authentication → Policies) — newly relevant now that
    researcher accounts have real passwords; see [PHASE_3_REPORT.md](PHASE_3_REPORT.md) §4.9/§9.4.
+6. **Deploy** to Vercel or Netlify (free tier) — see §Deployment below. Not done as of this report;
+   handed off to the researcher.
 
 ## Migrations
 
-`supabase/migrations/` holds seven files, applied in order:
+`supabase/migrations/` holds eight files, applied in order:
 
 | File | Contents |
 |---|---|
@@ -67,9 +73,12 @@ Beyond that, dashboard steps that are **not** automatable:
 | `0005_hardening.sql` | Fixes G1–G3, G6–G8 and a NULL-answer-key scoring hazard; adds referential integrity to the paper-consent join key |
 | `0006_versioning_and_h1.sql` | Closes H1 (PUBLIC grant on the trigger functions); adds atomic `save_item_version()`; consolidates `sessions`' two SELECT policies into one |
 | `0007_i1_fix.sql` | Closes I1 (missing SELECT policy on `badsq-audio` broke every participant audio upload via `INSERT...RETURNING`); fixes both `auth_rls_initplan` warnings; adds `responses.selection_change_count` |
+| `0008_reliability_subsample.sql` | Automatic random reliability-subsample assignment (20%, `reliability_subsample_rate()`) at submission time, replacing rater-chosen manual-only assignment; rewrites `submit_session()`'s guard clause (verified behaviorally equivalent) |
 
-All seven apply cleanly against Postgres 17.6. Apply with `supabase migration up`, or paste
-each file into the SQL editor in order.
+All eight apply cleanly against Postgres 17.6. Apply with `supabase migration up`, or paste
+each file into the SQL editor in order. **Known gap: `reliability_subsample_rate()` is missing
+the `search_path` pin every other function in this schema has (J1,
+[PHASE_4_REPORT.md](PHASE_4_REPORT.md) §6) — assessed as not currently exploitable, not yet fixed.**
 
 ### Participant codes
 
@@ -98,7 +107,9 @@ scripts/check_view_drift.sql         # standing release gate: every view's outpu
 
 Run the SQL suite as `postgres` in the Supabase SQL editor. It rebuilds its own fixtures,
 writes results to `verify.results`, and tears down cleanly. Latest recorded outcome after
-migration 0007: **82 assertions, 82 passed** and **30 HTTP assertions, 30 passed**. Run
+migration 0008: **84 assertions (82 + 2 new in PART 15), all passing** and **30 HTTP assertions,
+30 passed** — see [PHASE_4_REPORT.md](PHASE_4_REPORT.md) §4.5 for what was and wasn't re-run in
+full this phase. Run
 `check_view_drift.sql` before every deploy — it is what stands between a future base-column
 rename and a third silent recurrence of the defect that broke `ml_export_v1` (0003) and then
 `public_items` (0004).
@@ -109,6 +120,26 @@ RETURNING` (see [PHASE_2_REPORT.md](PHASE_2_REPORT.md) §6 and [PHASE_3_REPORT.m
 §4.5). Every storage assertion now uses `RETURNING`. `verify-security.mjs`'s storage checks were
 left as-is — they only ever tested anon-key denial, never a signed-in participant's own upload, so
 they never had this particular blind spot.
+
+## Deployment
+
+Static SPA, zero server-side config needed — routing is hash-based (`#/admin`, `#/test`), so
+there's no history-API rewrite rule to set up on either platform.
+
+1. Push this repo to GitHub (already done).
+2. Import the repo into Vercel or Netlify. Framework preset: Vite (auto-detected). Build command:
+   `npm run build`. Output directory: `dist`.
+3. In the platform's dashboard (never in a committed file), set:
+   - `VITE_SUPABASE_URL`
+   - `VITE_SUPABASE_PUBLISHABLE_KEY`
+   - `VITE_SUPABASE_AUDIO_BUCKET` (optional, defaults to `badsq-audio`)
+
+   Use the same real values from your local `.env` — not the placeholders in `.env.example`.
+4. Deploy. No `vercel.json`/`netlify.toml` is included or needed.
+5. Once live, test on a real iPhone (Safari) and a real Android phone (Chrome) as a participant —
+   see [PHASE_4_REPORT.md](PHASE_4_REPORT.md) §9.2. This is the first real test of iOS's MP4/AAC
+   audio path and real microphone hardware this project has ever been able to run; every prior
+   phase's headless-Chromium testing correctly declined to fake this instead of verifying it.
 
 ## Scripts
 
@@ -143,5 +174,5 @@ src/
   types/database.types.ts      Generated from the live schema
 public/fonts/                  Self-hosted Unicode Bangla font
 scripts/                       Verification suites + the view-drift release gate
-supabase/migrations/           0001, 0002, 0003, 0004, 0005, 0006, 0007
+supabase/migrations/           0001, 0002, 0003, 0004, 0005, 0006, 0007, 0008
 ```

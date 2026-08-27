@@ -139,10 +139,11 @@ export async function submitPrimaryRating(audioId: string, correct: boolean, rat
 }
 
 /**
- * There is no automatic reliability-subsample assignment anywhere in the
- * schema or migrations — surfacing the flag per the brief means a researcher
- * needs a way to actually set it, not just read it. This is a Phase 3
- * addition, not something the brief specified explicitly (see the report).
+ * Manual OVERRIDE on top of submit_session()'s automatic random assignment
+ * (migration 0008, reliability_subsample_rate()). Not the primary mechanism —
+ * the baseline sample must stay unbiased by construction, so this exists for
+ * legitimate one-off cases (forcing a specific recording into the double-
+ * scored set), not for routinely curating which recordings get double-scored.
  */
 export async function setReliabilitySubsample(audioId: string, value: boolean): Promise<void> {
   const { error } = await supabase.from('audio_recordings').update({ is_reliability_subsample: value }).eq('id', audioId);
