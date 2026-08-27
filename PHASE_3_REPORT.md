@@ -346,7 +346,8 @@ never written to disk in the project directory in a form that persisted past its
 
 ## 10. State of the repo
 
-- **Branch:** `main`, to be pushed to `https://github.com/ArianThehunter/BADSQ`
+- **Branch:** `main`, pushed to `https://github.com/ArianThehunter/BADSQ`
+- **Commit:** `c5acebd` — "Phase 3: password auth, migration 0007 (I1 fix), and real researcher admin surfaces"
 - **Supabase project:** `badsq-platform`, ref `gfxdhqkxetuoetzzrxxq`, region `ap-south-1`, Postgres 17.6, Free plan
 - **Migration state:** 0001–0007 all applied. Database contains **no data** — every fixture, session, participant, response, audio recording, and anonymous auth user created during this phase's verification, browser testing, and pipeline run was deleted; confirmed by direct count across every table. The `badsq-audio` and `badsq-item-audio` buckets are both empty. The one piece of pre-existing debris noted in Phase 2 (§4.5) is gone too — deleted this phase via the newly-available real researcher Storage session.
 
