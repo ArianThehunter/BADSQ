@@ -292,7 +292,8 @@ credentials at all (no new auth flow, no new researcher account).
 
 ## 10. State of the repo
 
-- **Branch:** `main`, to be pushed to `https://github.com/ArianThehunter/BADSQ`
+- **Branch:** `main`, pushed to `https://github.com/ArianThehunter/BADSQ`
+- **Commit:** `261c8d6` — "Phase 4: migration 0008 (unbiased reliability sampling), upsert removal, deployment prep"
 - **Supabase project:** `badsq-platform`, ref `gfxdhqkxetuoetzzrxxq`, region `ap-south-1`, Postgres 17.6, Free plan
 - **Migration state:** 0001–0008 all applied. Database contains **no data** — every fixture, session, participant, response, and audio recording created during this phase's verification (two distribution batches, five guard-clause checks, one regression run) was deleted; confirmed by direct count.
 
