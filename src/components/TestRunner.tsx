@@ -27,6 +27,7 @@ import {
   type ResponseDraft,
 } from '../lib/localDraft';
 import type { PublicItem, PublicItemOption, ResponseProps } from './responses/types';
+import { isKeyboardClick } from './responses/types';
 import McqTap from './responses/McqTap';
 import BinaryTap from './responses/BinaryTap';
 import TriTap from './responses/TriTap';
@@ -37,6 +38,7 @@ import './testrunner.css';
 
 type Phase =
   | 'loading'
+  | 'no-items'
   | 'resume-prompt'
   | 'intake'
   | 'running'
@@ -44,6 +46,26 @@ type Phase =
   | 'submitting'
   | 'submit-error'
   | 'complete';
+
+/** Fisher-Yates, in place. Used to remove answer-position bias -- see call site. */
+function shuffleInPlace<T>(arr: T[]): void {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+}
+
+/**
+ * Wraps a click handler so it only runs for keyboard-triggered clicks (Enter/
+ * Space on a focused button) -- see isKeyboardClick's doc comment. Pair with
+ * onPointerDown on the same button so mouse/touch and keyboard both work
+ * without double-firing on a real tap.
+ */
+function onKeyboardActivate(handler: () => void) {
+  return (e: { detail: number }) => {
+    if (isKeyboardClick(e)) handler();
+  };
+}
 
 function emptyResponseDraft(itemId: string): ResponseDraft {
   return {
@@ -101,6 +123,13 @@ export default function TestRunner() {
   const [draft, setDraft] = useState<LocalDraft | null>(null);
   const draftRef = useRef<LocalDraft | null>(null);
 
+  // Scopes the pastel test-flow theme (testrunner.css) to <body> only while this
+  // component is mounted, so the admin panel's plain palette is never affected.
+  useEffect(() => {
+    document.body.classList.add('badsq-test-mode');
+    return () => document.body.classList.remove('badsq-test-mode');
+  }, []);
+
   const setAndPersistDraft = useCallback((next: LocalDraft) => {
     draftRef.current = next;
     setDraft(next);
@@ -131,8 +160,22 @@ export default function TestRunner() {
           for (const o of (optRows ?? []) as PublicItemOption[]) {
             (optionsMap[o.item_id] ??= []).push(o);
           }
-          for (const list of Object.values(optionsMap)) {
+          // Bias guard: MCQ_TAP/BINARY_TAP have one objectively correct option, so a
+          // fixed on-screen position for it would let a participant who tends to
+          // guess "the first option" (or "the last") score above or below their
+          // true ability depending on where that item's answer happens to sit --
+          // not a reflection of skill. Shuffling once per session (not re-shuffled
+          // on re-render) removes that positional signal while leaving scoring,
+          // which is keyed by option_key against the answer key, untouched.
+          //
+          // TRI_TAP/LIKERT_5 are deliberately EXCLUDED: those are ordered scales
+          // (e.g. "কখনো না" -> "সবসময়") where the position IS the meaning --
+          // shuffling would corrupt the instrument, not de-bias it.
+          const formatByItemId = new Map(liveItems.map((i) => [i.id, i.response_format]));
+          for (const [itemId, list] of Object.entries(optionsMap)) {
             list.sort((a, b) => a.option_key.localeCompare(b.option_key));
+            const format = formatByItemId.get(itemId);
+            if (format === 'MCQ_TAP' || format === 'BINARY_TAP') shuffleInPlace(list);
           }
         }
 
@@ -141,6 +184,11 @@ export default function TestRunner() {
         if (cancelled) return;
         setItems(liveItems);
         setOptionsByItem(optionsMap);
+
+        if (liveItems.length === 0) {
+          setPhase('no-items');
+          return;
+        }
 
         if (existing && Object.keys(existing.responses).length > 0) {
           draftRef.current = existing;
@@ -229,7 +277,9 @@ export default function TestRunner() {
   }
 
   function normaliseModality(pointerType: string): ResponseDraft['inputModality'] {
-    if (pointerType === 'touch' || pointerType === 'mouse' || pointerType === 'pen') return pointerType;
+    if (pointerType === 'touch' || pointerType === 'mouse' || pointerType === 'pen' || pointerType === 'keyboard') {
+      return pointerType;
+    }
     return 'unknown';
   }
 
@@ -315,24 +365,49 @@ export default function TestRunner() {
     );
   }
 
+  if (phase === 'no-items') {
+    return (
+      <main className="runner-shell">
+        <div className="tr-card">
+          <h1 lang="bn">এখনো কোনো প্রশ্ন যোগ করা হয়নি</h1>
+          <p className="muted small">
+            No test items are configured yet. Please tell your teacher or the research team.
+          </p>
+        </div>
+      </main>
+    );
+  }
+
   if (phase === 'resume-prompt') {
     return (
       <main className="runner-shell resume-prompt">
-        <h1 lang="bn">আপনি কি চালিয়ে যেতে চান?</h1>
-        <p lang="bn">
-          মনে হচ্ছে একটি অসম্পূর্ণ সেশন আছে। আপনি কি আগের সেশন চালিয়ে যেতে চান, নাকি এটি একজন ভিন্ন শিক্ষার্থী?
-        </p>
-        <p className="muted small">
-          (Is this you continuing your earlier session, or a different student? A shared device
-          never resumes automatically.)
-        </p>
-        <div className="big-choice-row">
-          <button type="button" className="big-choice-button" onPointerDown={() => void handleResumeYes()}>
-            হ্যাঁ, চালিয়ে যাব
-          </button>
-          <button type="button" className="big-choice-button" onPointerDown={() => void handleResumeNo()}>
-            না, নতুন শিক্ষার্থী
-          </button>
+        <div className="tr-card">
+          <h1 lang="bn">আপনি কি চালিয়ে যেতে চান?</h1>
+          <p lang="bn">
+            মনে হচ্ছে একটি অসম্পূর্ণ সেশন আছে। আপনি কি আগের সেশন চালিয়ে যেতে চান, নাকি এটি একজন ভিন্ন শিক্ষার্থী?
+          </p>
+          <p className="muted small">
+            (Is this you continuing your earlier session, or a different student? A shared device
+            never resumes automatically.)
+          </p>
+          <div className="big-choice-row">
+            <button
+              type="button"
+              className="big-choice-button"
+              onPointerDown={() => void handleResumeYes()}
+              onClick={onKeyboardActivate(() => void handleResumeYes())}
+            >
+              হ্যাঁ, চালিয়ে যাব
+            </button>
+            <button
+              type="button"
+              className="big-choice-button"
+              onPointerDown={() => void handleResumeNo()}
+              onClick={onKeyboardActivate(() => void handleResumeNo())}
+            >
+              না, নতুন শিক্ষার্থী
+            </button>
+          </div>
         </div>
       </main>
     );
@@ -341,14 +416,22 @@ export default function TestRunner() {
   if (phase === 'intake') {
     return (
       <main className="runner-shell">
-        <h1 lang="bn">তোমার শ্রেণি কত?</h1>
-        <p className="muted small">What class/grade are you in?</p>
-        <div className="big-choice-row">
-          {[6, 7, 8].map((g) => (
-            <button key={g} type="button" className="big-choice-button" onPointerDown={() => setClassGrade(g as 6 | 7 | 8)}>
-              {g}
-            </button>
-          ))}
+        <div className="tr-card">
+          <h1 lang="bn">তোমার শ্রেণি কত?</h1>
+          <p className="muted small">What class/grade are you in?</p>
+          <div className="big-choice-row">
+            {[6, 7, 8].map((g) => (
+              <button
+                key={g}
+                type="button"
+                className="big-choice-button"
+                onPointerDown={() => setClassGrade(g as 6 | 7 | 8)}
+                onClick={onKeyboardActivate(() => setClassGrade(g as 6 | 7 | 8))}
+              >
+                {g}
+              </button>
+            ))}
+          </div>
         </div>
       </main>
     );
@@ -356,11 +439,23 @@ export default function TestRunner() {
 
   if (phase === 'running' && currentItem && draft) {
     const response = draft.responses[currentItem.id] ?? emptyResponseDraft(currentItem.id);
+    const progressPercent = Math.round(((currentIndex + 1) / items.length) * 100);
     return (
       <main className="runner-shell">
-        <p className="progress-indicator">
-          {currentIndex + 1} / {items.length}
-        </p>
+        <div className="progress-wrap">
+          <div
+            className="progress-track"
+            role="progressbar"
+            aria-valuenow={progressPercent}
+            aria-valuemin={0}
+            aria-valuemax={100}
+          >
+            <div className="progress-fill" style={{ width: `${progressPercent}%` }} />
+          </div>
+          <p className="progress-indicator">
+            {currentIndex + 1} / {items.length}
+          </p>
+        </div>
         <ItemScreen
           key={currentItem.id}
           item={currentItem}
@@ -377,11 +472,19 @@ export default function TestRunner() {
   if (phase === 'ready-to-submit') {
     return (
       <main className="runner-shell">
-        <h1 lang="bn">সব প্রশ্নের উত্তর দেওয়া হয়েছে</h1>
-        <p className="muted small">All items answered. Submit when ready.</p>
-        <button type="button" className="big-choice-button primary" disabled={!readyToSubmit} onPointerDown={() => void handleSubmit()}>
-          জমা দিন (Submit)
-        </button>
+        <div className="tr-card">
+          <h1 lang="bn">সব প্রশ্নের উত্তর দেওয়া হয়েছে</h1>
+          <p className="muted small">All items answered. Submit when ready.</p>
+          <button
+            type="button"
+            className="big-choice-button primary"
+            disabled={!readyToSubmit}
+            onPointerDown={() => void handleSubmit()}
+            onClick={onKeyboardActivate(() => void handleSubmit())}
+          >
+            জমা দিন (Submit)
+          </button>
+        </div>
       </main>
     );
   }
@@ -389,9 +492,11 @@ export default function TestRunner() {
   if (phase === 'submitting') {
     return (
       <main className="runner-shell">
-        <p className="muted" lang="bn">
-          জমা দেওয়া হচ্ছে…
-        </p>
+        <div className="tr-card">
+          <p className="muted" lang="bn">
+            জমা দেওয়া হচ্ছে…
+          </p>
+        </div>
       </main>
     );
   }
@@ -399,14 +504,21 @@ export default function TestRunner() {
   if (phase === 'submit-error') {
     return (
       <main className="runner-shell">
-        <h1>Not yet submitted</h1>
-        <p className="error">
-          Something went wrong sending your answers: {error}. Your answers are still saved on
-          this device — nothing has been lost. Try again.
-        </p>
-        <button type="button" className="big-choice-button primary" onPointerDown={() => void handleSubmit()}>
-          Try submitting again
-        </button>
+        <div className="tr-card">
+          <h1>Not yet submitted</h1>
+          <p className="error">
+            Something went wrong sending your answers: {error}. Your answers are still saved on
+            this device — nothing has been lost. Try again.
+          </p>
+          <button
+            type="button"
+            className="big-choice-button primary"
+            onPointerDown={() => void handleSubmit()}
+            onClick={onKeyboardActivate(() => void handleSubmit())}
+          >
+            Try submitting again
+          </button>
+        </div>
       </main>
     );
   }
@@ -414,15 +526,32 @@ export default function TestRunner() {
   if (phase === 'complete' && draft) {
     return (
       <main className="runner-shell complete-screen">
-        <h1 lang="bn">ধন্যবাদ!</h1>
-        <p className="muted small">Thank you — your answers have been submitted.</p>
-        <p>Please tell your teacher this code so it can be written on your form:</p>
-        <p className="assigned-code">{draft.assignedCode}</p>
+        <div className="tr-card">
+          <h1 lang="bn">🎉 ধন্যবাদ!</h1>
+          <p className="muted small">Thank you — your answers have been submitted.</p>
+          <p>Please tell your teacher this code so it can be written on your form:</p>
+          <p className="assigned-code">{draft.assignedCode}</p>
+          <a href="#/" className="big-choice-button primary home-link">
+            হোমে ফিরে যাও (Return home)
+          </a>
+        </div>
       </main>
     );
   }
 
-  return null;
+  // Defensive fallback: every real phase is handled above, so reaching here means
+  // an unexpected state combination (e.g. 'running' with no current item). Show
+  // something actionable instead of a blank screen.
+  return (
+    <main className="runner-shell">
+      <div className="tr-card">
+        <h1>Something went wrong</h1>
+        <p className="muted small">
+          The test could not continue from here. Please tell your teacher, or reload the page.
+        </p>
+      </div>
+    </main>
+  );
 }
 
 /**
@@ -556,12 +685,22 @@ function ItemScreen({
 
       <div className="replay-row">
         {item.is_instruction_replayable && instructionDone && (
-          <button type="button" className="replay-button" onPointerDown={replayInstruction}>
+          <button
+            type="button"
+            className="replay-button"
+            onPointerDown={replayInstruction}
+            onClick={onKeyboardActivate(replayInstruction)}
+          >
             🔊 নির্দেশনা আবার শুনুন
           </button>
         )}
         {hasStimulus && item.is_stimulus_replayable === true && response.stimulusFirstEndClientTs != null && (
-          <button type="button" className="replay-button" onPointerDown={replayStimulus}>
+          <button
+            type="button"
+            className="replay-button"
+            onPointerDown={replayStimulus}
+            onClick={onKeyboardActivate(replayStimulus)}
+          >
             🔊 আবার শুনুন
           </button>
         )}
@@ -571,7 +710,13 @@ function ItemScreen({
         {renderResponseComponent(item, response, sharedProps, onPatch)}
       </div>
 
-      <button type="button" className="next-button" disabled={!canAdvance} onPointerDown={onAdvance}>
+      <button
+        type="button"
+        className="next-button"
+        disabled={!canAdvance}
+        onPointerDown={onAdvance}
+        onClick={onKeyboardActivate(onAdvance)}
+      >
         পরবর্তী (Next)
       </button>
     </div>

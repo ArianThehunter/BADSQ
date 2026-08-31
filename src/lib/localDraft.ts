@@ -43,7 +43,7 @@ export type ResponseDraft = {
   responseClientTs: number | null;
   responseLatencyFromFirstMs: number | null;
   responseLatencyFromLastMs: number | null;
-  inputModality: 'touch' | 'mouse' | 'pen' | 'unknown' | null;
+  inputModality: 'touch' | 'mouse' | 'pen' | 'keyboard' | 'unknown' | null;
   viewportWidth: number | null;
   viewportHeight: number | null;
   replayCountInstruction: number;

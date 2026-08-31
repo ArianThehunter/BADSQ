@@ -12,6 +12,7 @@ import { supabase, SUPABASE_URL } from './lib/supabaseClient';
 import AuthGate from './admin/AuthGate';
 import AdminShell from './admin/AdminShell';
 import TestRunner from './components/TestRunner';
+import LandingPage from './LandingPage';
 import './admin.css';
 
 type CheckState =
@@ -45,13 +46,16 @@ function Row({ label, state }: { label: string; state: CheckState }) {
 }
 
 /** Trivial hash router: `#/admin...` goes to the researcher panel, `#/test`
- * goes to the participant TestRunner, anything else is the Phase 0 status
- * page. No routing library — the surface here is three branches. */
-function useRoute(): 'admin' | 'test' | 'status' {
+ * goes to the participant TestRunner, `#/status` goes to the diagnostic
+ * status page (moved out of the way of `/`, see PHASE_0_REPORT.md history),
+ * anything else — including no hash at all — is the landing page. No
+ * routing library — the surface here is four branches. */
+function useRoute(): 'admin' | 'test' | 'status' | 'landing' {
   const read = () => {
     if (window.location.hash.startsWith('#/admin')) return 'admin' as const;
     if (window.location.hash.startsWith('#/test')) return 'test' as const;
-    return 'status' as const;
+    if (window.location.hash.startsWith('#/status')) return 'status' as const;
+    return 'landing' as const;
   };
   const [route, setRoute] = useState(read);
   useEffect(() => {
@@ -77,7 +81,11 @@ export default function App() {
     return <TestRunner />;
   }
 
-  return <StatusPage />;
+  if (route === 'status') {
+    return <StatusPage />;
+  }
+
+  return <LandingPage />;
 }
 
 function StatusPage() {
@@ -138,6 +146,7 @@ function StatusPage() {
         the participant test flow.
       </p>
       <p style={{ marginTop: 0, display: 'flex', gap: '1rem' }}>
+        <a href="#/">&larr; Home</a>
         <a href="#/admin">Researcher admin panel &rarr;</a>
         <a href="#/test">Participant test flow &rarr;</a>
       </p>

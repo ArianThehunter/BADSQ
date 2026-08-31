@@ -22,6 +22,7 @@ import {
   retireItem,
   uploadItemAudio,
   signedAudioUrl,
+  bulkSetReplayability,
   type ItemRow,
 } from '../lib/itemBank';
 import {
@@ -179,7 +180,22 @@ export default function ItemBankEditor({ profile }: { profile: ResearcherProfile
   const [saveError, setSaveError] = useState<string | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
 
+  const [bulkSubdomain, setBulkSubdomain] = useState('');
+  const [bulkInstruction, setBulkInstruction] = useState<'' | 'true' | 'false'>('');
+  const [bulkStimulus, setBulkStimulus] = useState<'' | 'true' | 'false'>('');
+  const [bulkBusy, setBulkBusy] = useState(false);
+
   const canManage = profile.can_manage_items;
+
+  // Subdomains present among the CURRENTLY LOADED items, i.e. within domainFilter
+  // if one is set — bulk replayability only makes sense scoped to one domain,
+  // since the same subdomain label could exist under a different domain.
+  const subdomainsInView = useMemo(() => {
+    const set = new Set(items.map((i) => i.subdomain).filter((s): s is string => !!s));
+    return [...set].sort();
+  }, [items]);
+
+  const [hiddenInactiveCount, setHiddenInactiveCount] = useState(0);
 
   const refresh = useCallback(async () => {
     // (oxlint flags this as react/set-state-in-effect; accepted — standard
@@ -189,7 +205,18 @@ export default function ItemBankEditor({ profile }: { profile: ResearcherProfile
     setLoading(true);
     setLoadError(null);
     try {
-      setItems(await listItems({ domain: domainFilter || undefined, includeRetired: showRetired }));
+      const rows = await listItems({ domain: domainFilter || undefined, includeRetired: showRetired });
+      setItems(rows);
+      // If the active-only view is empty, check whether that's because
+      // everything here is a not-yet-activated draft — the checkbox below is
+      // easy to miss, and "no items" reads very differently from "12 items
+      // exist but are all inactive drafts".
+      if (!showRetired && rows.length === 0) {
+        const all = await listItems({ domain: domainFilter || undefined, includeRetired: true });
+        setHiddenInactiveCount(all.length);
+      } else {
+        setHiddenInactiveCount(0);
+      }
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -200,6 +227,11 @@ export default function ItemBankEditor({ profile }: { profile: ResearcherProfile
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  // Drop a stale subdomain selection when the domain filter changes underneath it.
+  useEffect(() => {
+    if (bulkSubdomain && !subdomainsInView.includes(bulkSubdomain)) setBulkSubdomain('');
+  }, [subdomainsInView, bulkSubdomain]);
 
   const blockers = useMemo(
     () => (editing ? activationBlockers(editing.draft) : []),
@@ -285,6 +317,31 @@ export default function ItemBankEditor({ profile }: { profile: ResearcherProfile
       await refresh();
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async function handleBulkApply() {
+    if (!domainFilter || !bulkSubdomain) return;
+    const patch: { is_instruction_replayable?: boolean; is_stimulus_replayable?: boolean } = {};
+    if (bulkInstruction !== '') patch.is_instruction_replayable = bulkInstruction === 'true';
+    if (bulkStimulus !== '') patch.is_stimulus_replayable = bulkStimulus === 'true';
+    if (Object.keys(patch).length === 0) return;
+
+    setBulkBusy(true);
+    setFlash(null);
+    setLoadError(null);
+    try {
+      const count = await bulkSetReplayability(domainFilter, bulkSubdomain, patch);
+      setFlash(
+        `Updated replay settings on ${count} active item(s) in domain ${domainFilter} / ${bulkSubdomain}.`,
+      );
+      setBulkInstruction('');
+      setBulkStimulus('');
+      await refresh();
+    } catch (e) {
+      setLoadError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBulkBusy(false);
     }
   }
 
@@ -564,10 +621,61 @@ export default function ItemBankEditor({ profile }: { profile: ResearcherProfile
         </label>
         <label className="inline">
           <input type="checkbox" checked={showRetired} onChange={(e) => setShowRetired(e.target.checked)} />
-          Show retired versions
+          Show inactive items (new drafts &amp; retired versions)
         </label>
         <button type="button" onClick={() => void refresh()}>Refresh</button>
       </div>
+
+      <fieldset>
+        <legend>Bulk replay settings (per subdomain)</legend>
+        {!domainFilter ? (
+          <p className="muted small">Select a domain above to enable bulk replay editing for its subdomains.</p>
+        ) : subdomainsInView.length === 0 ? (
+          <p className="muted small">No active items in domain {domainFilter} carry a subdomain label.</p>
+        ) : (
+          <>
+            <div className="grid-2">
+              <label>
+                Subdomain
+                <select value={bulkSubdomain} onChange={(e) => setBulkSubdomain(e.target.value)}>
+                  <option value="">— choose —</option>
+                  {subdomainsInView.map((s) => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Instruction replayable
+                <select value={bulkInstruction} onChange={(e) => setBulkInstruction(e.target.value as typeof bulkInstruction)}>
+                  <option value="">— no change —</option>
+                  <option value="true">Yes — replayable</option>
+                  <option value="false">No — single presentation</option>
+                </select>
+              </label>
+              <label>
+                Stimulus replayable
+                <select value={bulkStimulus} onChange={(e) => setBulkStimulus(e.target.value as typeof bulkStimulus)}>
+                  <option value="">— no change —</option>
+                  <option value="true">Yes — replayable</option>
+                  <option value="false">No — single presentation</option>
+                </select>
+              </label>
+            </div>
+            <button
+              type="button"
+              className="primary"
+              disabled={!canManage || bulkBusy || !bulkSubdomain || (bulkInstruction === '' && bulkStimulus === '')}
+              onClick={() => void handleBulkApply()}
+            >
+              {bulkBusy ? 'Applying…' : `Apply to every active item in ${bulkSubdomain || '…'}`}
+            </button>
+            <p className="muted small">
+              Applies immediately to every active item sharing this domain and subdomain — no new
+              version is created, since replay flags don't affect what a session was shown or scored.
+            </p>
+          </>
+        )}
+      </fieldset>
 
       {flash && <div className="notice notice-ok" role="status">{flash}</div>}
       {loadError && (
@@ -580,8 +688,18 @@ export default function ItemBankEditor({ profile }: { profile: ResearcherProfile
         <p className="muted">Loading…</p>
       ) : items.length === 0 ? (
         <p className="muted">
-          No items{domainFilter ? ` in domain ${domainFilter}` : ''} yet.
-          {canManage ? ' Use “New item” to author the first one.' : ''}
+          {hiddenInactiveCount > 0 ? (
+            <>
+              No <strong>active</strong> items{domainFilter ? ` in domain ${domainFilter}` : ''} — but{' '}
+              {hiddenInactiveCount} inactive item(s) exist here. Check “Show inactive items” above to see
+              them.
+            </>
+          ) : (
+            <>
+              No items{domainFilter ? ` in domain ${domainFilter}` : ''} yet.
+              {canManage ? ' Use “New item” to author the first one.' : ''}
+            </>
+          )}
         </p>
       ) : (
         <div className="table-scroll">

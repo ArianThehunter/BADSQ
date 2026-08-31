@@ -37,9 +37,7 @@ export type RatingQueueRow = {
   durationMs: number | null;
   ratingStatus: string;
   isReliabilitySubsample: boolean;
-  primaryRating: boolean | null;
-  secondaryRating: boolean | null;
-  agreement: boolean | null;
+  notes: string | null;
   itemCode: string;
   stimulusText: string | null;
   domain: string;
@@ -52,7 +50,7 @@ export async function listRatingQueue(includeRated: boolean): Promise<RatingQueu
   let query = supabase
     .from('audio_recordings')
     .select(
-      'id, response_id, storage_path, mime_type, duration_ms, rating_status, is_reliability_subsample, primary_rating, secondary_rating, agreement, uploaded_at',
+      'id, response_id, storage_path, mime_type, duration_ms, rating_status, is_reliability_subsample, notes, uploaded_at',
     )
     .order('uploaded_at', { ascending: true });
   if (!includeRated) query = query.eq('rating_status', 'pending');
@@ -103,9 +101,7 @@ export async function listRatingQueue(includeRated: boolean): Promise<RatingQueu
       durationMs: r.duration_ms,
       ratingStatus: r.rating_status,
       isReliabilitySubsample: r.is_reliability_subsample,
-      primaryRating: r.primary_rating,
-      secondaryRating: r.secondary_rating,
-      agreement: r.agreement,
+      notes: r.notes,
       itemCode: item?.item_code ?? '(unknown item)',
       stimulusText: item?.stimulus_text ?? null,
       domain: item?.domain ?? '?',
@@ -121,21 +117,28 @@ export function signedRatingAudioUrl(storagePath: string): Promise<string> {
 }
 
 /**
- * Records a primary rating. The propagate_audio_rating trigger (migration
- * 0001, verified every phase since) copies is_correct/scored_by onto the
- * linked response row — this function does not touch `responses` itself.
+ * Records a reviewer's free-text note and marks the recording reviewed.
+ *
+ * CHANGED IN MIGRATION 0010: this used to be `submitPrimaryRating(audioId,
+ * correct, raterId)`, writing a binary correct/incorrect judgment that the
+ * `propagate_audio_rating` trigger copied onto `responses.is_correct`.
+ * Decision reversed — correctness for AUDIO_RECORD responses is now decided
+ * later by an offline model run against the raw stored audio, not by a
+ * human's live binary click, so `is_correct` stays NULL here regardless of
+ * what a researcher writes in `notes`. The trigger is neutered accordingly;
+ * this function only ever touches `audio_recordings`.
  */
-export async function submitPrimaryRating(audioId: string, correct: boolean, raterId: string): Promise<void> {
+export async function saveRecordingNotes(audioId: string, notes: string, raterId: string): Promise<void> {
   const { error } = await supabase
     .from('audio_recordings')
     .update({
-      primary_rating: correct,
+      notes: notes.trim() || null,
       primary_rater_id: raterId,
       primary_rated_at: new Date().toISOString(),
       rating_status: 'rated',
     })
     .eq('id', audioId);
-  if (error) fail('Could not save the rating', error);
+  if (error) fail('Could not save the note', error);
 }
 
 /**

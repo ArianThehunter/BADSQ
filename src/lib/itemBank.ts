@@ -193,6 +193,30 @@ export async function setActive(itemId: string, active: boolean): Promise<void> 
   if (error) fail(active ? 'Could not activate item' : 'Could not deactivate item', error);
 }
 
+export type ReplayabilityPatch = {
+  is_instruction_replayable?: boolean;
+  is_stimulus_replayable?: boolean;
+};
+
+/**
+ * Set replay flags for every ACTIVE item sharing a domain + subdomain at once.
+ * Replayability never changes what a session was shown or how it was scored —
+ * unlike item_code/text/options/audio, it's safe to update directly rather
+ * than through save_item_version(), the same reasoning that already applies
+ * to setActive()/retireItem() above.
+ */
+export async function bulkSetReplayability(
+  domain: string,
+  subdomain: string | null,
+  patch: ReplayabilityPatch,
+): Promise<number> {
+  let q = supabase.from('items').update(patch).eq('domain', domain).eq('active', true);
+  q = subdomain === null ? q.is('subdomain', null) : q.eq('subdomain', subdomain);
+  const { data, error } = await q.select('id');
+  if (error) fail('Could not bulk-update replayability', error);
+  return data?.length ?? 0;
+}
+
 /* ------------------------------------------------------------------ audio */
 
 /**

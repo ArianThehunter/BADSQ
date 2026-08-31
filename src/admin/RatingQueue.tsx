@@ -1,10 +1,13 @@
 /**
- * RatingQueue — human rating of AUDIO_RECORD responses.
+ * RatingQueue — researcher review of AUDIO_RECORD responses.
  *
- * Rating is binary (correct / incorrect), matching audio_recordings.primary_rating.
- * Saving a rating fires the propagate_audio_rating trigger (migration 0001),
- * which copies is_correct/scored_by onto the linked response row — this
- * component never writes to `responses` directly.
+ * CHANGED IN MIGRATION 0010: this used to require a binary correct/incorrect
+ * click per recording, which the `propagate_audio_rating` trigger copied onto
+ * `responses.is_correct`. That decision was reversed — correctness for
+ * AUDIO_RECORD responses is now decided later by an offline model run against
+ * the raw stored audio, not live by a human. This component is now a
+ * listen-and-note tool: play the recording, optionally leave a free-text
+ * note, mark it reviewed. It never writes `responses.is_correct`.
  *
  * is_reliability_subsample is assigned automatically at submission time
  * (migration 0008, reliability_subsample_rate() — 20% by default) so the
@@ -20,7 +23,7 @@ import type { ResearcherProfile } from '../lib/supabaseClient';
 import {
   listRatingQueue,
   signedRatingAudioUrl,
-  submitPrimaryRating,
+  saveRecordingNotes,
   setReliabilitySubsample,
   type RatingQueueRow,
 } from '../lib/adminData';
@@ -31,11 +34,17 @@ export default function RatingQueue({ profile }: { profile: ResearcherProfile })
   const [includeRated, setIncludeRated] = useState(false);
   const [playingUrl, setPlayingUrl] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
+  const [noteDrafts, setNoteDrafts] = useState<Record<string, string>>({});
 
   const load = useCallback(async () => {
     try {
       const data = await listRatingQueue(includeRated);
       setRows(data);
+      setNoteDrafts((prev) => {
+        const next = { ...prev };
+        for (const row of data) if (!(row.audioId in next)) next[row.audioId] = row.notes ?? '';
+        return next;
+      });
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -60,11 +69,11 @@ export default function RatingQueue({ profile }: { profile: ResearcherProfile })
     }
   }
 
-  async function handleRate(row: RatingQueueRow, correct: boolean) {
+  async function handleSaveNote(row: RatingQueueRow) {
     if (!profile.can_rate) return;
     setBusy(row.audioId);
     try {
-      await submitPrimaryRating(row.audioId, correct, profile.id);
+      await saveRecordingNotes(row.audioId, noteDrafts[row.audioId] ?? '', profile.id);
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -105,9 +114,15 @@ export default function RatingQueue({ profile }: { profile: ResearcherProfile })
             checked={includeRated}
             onChange={(e) => setIncludeRated(e.target.checked)}
           />{' '}
-          Show already-rated recordings
+          Show already-reviewed recordings
         </label>
       </div>
+
+      <p className="muted small">
+        Correctness for these recordings is decided later by an offline model against the raw
+        audio, not here. Use this to listen and leave notes for your own records — it never sets a
+        correct/incorrect score.
+      </p>
 
       {error && <div className="notice notice-error">{error}</div>}
 
@@ -115,7 +130,7 @@ export default function RatingQueue({ profile }: { profile: ResearcherProfile })
         <p className="muted">Loading…</p>
       ) : rows.length === 0 ? (
         <p className="muted">
-          {includeRated ? 'No audio recordings exist yet.' : 'Nothing pending rating right now.'}
+          {includeRated ? 'No audio recordings exist yet.' : 'Nothing pending review right now.'}
         </p>
       ) : (
         <div className="table-scroll">
@@ -127,7 +142,7 @@ export default function RatingQueue({ profile }: { profile: ResearcherProfile })
                 <th>Recording</th>
                 <th>Reliability subsample</th>
                 <th>Status</th>
-                <th>Rate</th>
+                <th>Notes</th>
               </tr>
             </thead>
             <tbody>
@@ -166,18 +181,22 @@ export default function RatingQueue({ profile }: { profile: ResearcherProfile })
                   </td>
                   <td>
                     <span className={row.ratingStatus === 'rated' ? 'pill pill-on' : 'pill'}>
-                      {row.ratingStatus}
+                      {row.ratingStatus === 'rated' ? 'reviewed' : row.ratingStatus}
                     </span>
-                    {row.primaryRating != null && (
-                      <div className="muted small">primary: {row.primaryRating ? 'correct' : 'incorrect'}</div>
-                    )}
                   </td>
-                  <td className="actions-cell">
-                    <button type="button" disabled={busy === row.audioId} onClick={() => handleRate(row, true)}>
-                      Correct
-                    </button>
-                    <button type="button" disabled={busy === row.audioId} onClick={() => handleRate(row, false)}>
-                      Incorrect
+                  <td className="notes-cell">
+                    <textarea
+                      rows={2}
+                      className="small"
+                      placeholder="Optional note (e.g. unclear audio, background noise)…"
+                      value={noteDrafts[row.audioId] ?? ''}
+                      disabled={busy === row.audioId}
+                      onChange={(e) =>
+                        setNoteDrafts((prev) => ({ ...prev, [row.audioId]: e.target.value }))
+                      }
+                    />
+                    <button type="button" disabled={busy === row.audioId} onClick={() => void handleSaveNote(row)}>
+                      Mark reviewed
                     </button>
                   </td>
                 </tr>

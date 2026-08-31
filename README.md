@@ -134,8 +134,16 @@ there's no history-API rewrite rule to set up on either platform.
    - `VITE_SUPABASE_AUDIO_BUCKET` (optional, defaults to `badsq-audio`)
 
    Use the same real values from your local `.env` — not the placeholders in `.env.example`.
-4. Deploy. No `vercel.json`/`netlify.toml` is included or needed.
-5. Once live, test on a real iPhone (Safari) and a real Android phone (Chrome) as a participant —
+4. Deploy. `vercel.json` / `netlify.toml` are included — neither sets up routing (the hash router
+   needs none), they only add response headers appropriate for an app collecting data from minors:
+   `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`,
+   a `Permissions-Policy` that allows the microphone only for this origin (needed for
+   `AUDIO_RECORD` items) and denies camera/geolocation outright, and HSTS.
+5. **Microphone access requires HTTPS** (or `localhost`) — this is a browser security rule, not
+   configurable. Both platforms serve HTTPS by default, so this is automatic once deployed; the
+   one way to break it is testing a phone against a laptop dev server over a plain
+   `http://<lan-ip>:5173` address instead of the deployed URL.
+6. Once live, test on a real iPhone (Safari) and a real Android phone (Chrome) as a participant —
    see [PHASE_4_REPORT.md](PHASE_4_REPORT.md) §9.2. This is the first real test of iOS's MP4/AAC
    audio path and real microphone hardware this project has ever been able to run; every prior
    phase's headless-Chromium testing correctly declined to fake this instead of verifying it.
@@ -173,5 +181,5 @@ src/
   types/database.types.ts      Generated from the live schema
 public/fonts/                  Self-hosted Unicode Bangla font
 scripts/                       Verification suites + the view-drift release gate
-supabase/migrations/           0001, 0002, 0003, 0004, 0005, 0006, 0007, 0008
+supabase/migrations/           0001, 0002, 0003, 0004, 0005, 0006, 0007, 0008, 0009
 ```

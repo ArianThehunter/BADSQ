@@ -14,7 +14,8 @@
  * this instrument measures: the student's first reaction.
  */
 
-import type { PointerEvent } from 'react';
+import type { MouseEvent, PointerEvent } from 'react';
+import { isKeyboardClick } from './types';
 
 export type OptionItem = { option_key: string; option_text: string };
 
@@ -35,10 +36,22 @@ export default function OptionGrid({
   onChange: (optionKey: string) => void;
   layout?: 'list' | 'scale';
 }) {
-  function handlePointerDown(e: PointerEvent<HTMLButtonElement>, key: string) {
+  function activate(key: string, modality: string) {
     if (disabled) return;
-    if (!hasAnswered) onFirstInteraction(e.pointerType || 'unknown');
+    if (!hasAnswered) onFirstInteraction(modality);
     onChange(key);
+  }
+
+  function handlePointerDown(e: PointerEvent<HTMLButtonElement>, key: string) {
+    activate(key, e.pointerType || 'unknown');
+  }
+
+  // Keyboard activation (Enter/Space) never fires onPointerDown -- see
+  // isKeyboardClick's doc comment. Guarded so a real mouse/touch tap, which
+  // fires both pointerdown and a following click, doesn't double-activate.
+  function handleClick(e: MouseEvent<HTMLButtonElement>, key: string) {
+    if (!isKeyboardClick(e)) return;
+    activate(key, 'keyboard');
   }
 
   return (
@@ -52,6 +65,7 @@ export default function OptionGrid({
           aria-pressed={value === o.option_key}
           lang="bn"
           onPointerDown={(e) => handlePointerDown(e, o.option_key)}
+          onClick={(e) => handleClick(e, o.option_key)}
         >
           {o.option_text}
         </button>

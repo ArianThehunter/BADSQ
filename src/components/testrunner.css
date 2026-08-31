@@ -1,11 +1,49 @@
 /*
- * TestRunner styles. Plain CSS, relative units, no component library.
+ * TestRunner styles — teen-friendly pastel theme.
  *
  * Touch targets: WCAG 2.2 SC 2.5.8 floor is 24x24px; the field protocol's
  * practical target is 44x44px. Every interactive control here meets 44px —
  * this is a screening instrument for 12-14 year olds on shared school
  * devices, not a desktop app.
+ *
+ * All theme colors live under `body.badsq-test-mode` (toggled by TestRunner
+ * on mount/unmount), so this pastel palette never leaks into the researcher
+ * admin panel, which keeps its own plain palette from admin.css/index.css.
  */
+
+body.badsq-test-mode {
+  --tr-bg-1: #f4f1ff;
+  --tr-bg-2: #fdf1f7;
+  --tr-bg-3: #fff6ee;
+  --tr-card: #ffffff;
+  --tr-text: #2b2740;
+  --tr-muted: #6e6a85;
+  --tr-border: #e7e2fa;
+  --tr-accent: #6f62e0;
+  --tr-accent-dark: #584bd1;
+  --tr-accent-soft: #ece9ff;
+  --tr-success: #3fae82;
+  --tr-warm: #ff8a70;
+  --tr-warm-dark: #e56c50;
+  --tr-radius-lg: 1.75rem;
+  --tr-radius-md: 1.125rem;
+  --tr-shadow-card: 0 12px 32px -8px rgba(90, 76, 190, 0.18);
+  --tr-shadow-btn: 0 6px 16px -4px rgba(111, 98, 224, 0.35);
+
+  background: linear-gradient(160deg, var(--tr-bg-1) 0%, var(--tr-bg-2) 55%, var(--tr-bg-3) 100%);
+  background-attachment: fixed;
+  color: var(--tr-text);
+}
+
+/* Re-tint the shared admin.css utility classes so they read as part of this
+   theme instead of the admin panel's plain gray/red, without touching
+   admin.css itself. */
+body.badsq-test-mode .muted {
+  color: var(--tr-muted);
+}
+body.badsq-test-mode .error {
+  color: #d9534f;
+}
 
 .runner-shell {
   max-width: 32rem;
@@ -18,21 +56,51 @@
 }
 
 .runner-shell h1 {
-  font-size: 1.375rem;
+  font-size: 1.5rem;
   margin: 0;
+  color: var(--tr-text);
+}
+
+/* ------------------------------------------------------------- progress bar */
+
+.progress-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.progress-track {
+  flex: 1;
+  height: 0.625rem;
+  border-radius: 999px;
+  background: var(--tr-accent-soft);
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--tr-accent), var(--tr-warm));
+  transition: width 0.25s ease;
 }
 
 .progress-indicator {
-  align-self: flex-end;
-  color: var(--color-muted);
+  color: var(--tr-muted);
   font-variant-numeric: tabular-nums;
-  font-size: 0.875rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
   margin: 0;
+  white-space: nowrap;
 }
 
-/* ------------------------------------------------------------- item screen */
+/* --------------------------------------------------------------------- card */
 
+.tr-card,
 .item-screen {
+  background: var(--tr-card);
+  border-radius: var(--tr-radius-lg);
+  box-shadow: var(--tr-shadow-card);
+  padding: 1.75rem 1.5rem;
   display: flex;
   flex-direction: column;
   gap: 1.25rem;
@@ -44,6 +112,7 @@
   line-height: 1.8;
   text-align: center;
   margin: 0.5rem 0;
+  color: var(--tr-text);
 }
 
 .replay-row {
@@ -56,12 +125,23 @@
 
 .replay-button {
   min-height: var(--touch-target-min);
-  padding: 0.5rem 1rem;
-  font-size: 1rem;
-  border: 1px solid var(--color-border);
-  border-radius: 0.5rem;
-  background: #f4f5f7;
+  padding: 0.5rem 1.125rem;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  border: none;
+  border-radius: 999px;
+  background: var(--tr-accent-soft);
+  color: var(--tr-accent-dark);
   cursor: pointer;
+  transition: transform 0.12s ease, background 0.15s ease;
+}
+
+.replay-button:hover {
+  background: #ded8ff;
+}
+
+.replay-button:active {
+  transform: scale(0.96);
 }
 
 .response-area {
@@ -78,21 +158,39 @@
 
 .next-button,
 .big-choice-button {
-  min-height: 3rem;
+  min-height: 3.25rem;
   min-width: var(--touch-target-min);
-  padding: 0.875rem 1.5rem;
+  padding: 0.875rem 1.75rem;
   font-size: 1.125rem;
-  font-weight: 600;
+  font-weight: 700;
   border: none;
-  border-radius: 0.625rem;
-  background: var(--color-accent);
+  border-radius: 999px;
+  background: linear-gradient(135deg, var(--tr-accent), var(--tr-accent-dark));
   color: #fff;
   cursor: pointer;
+  box-shadow: var(--tr-shadow-btn);
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+
+.next-button:hover:not(:disabled),
+.big-choice-button:hover {
+  transform: translateY(-1px);
+}
+
+.next-button:active:not(:disabled),
+.big-choice-button:active {
+  transform: translateY(0) scale(0.98);
 }
 
 .next-button:disabled {
-  background: #b9c3dc;
+  background: #d8d4ee;
+  color: #a49fc4;
+  box-shadow: none;
   cursor: not-allowed;
+}
+
+.big-choice-button.primary {
+  background: linear-gradient(135deg, var(--tr-success), #2f9468);
 }
 
 /* --------------------------------------------------------------- MCQ / TRI / BINARY / LIKERT */
@@ -113,6 +211,7 @@
 }
 
 .option-button {
+  position: relative;
   min-height: var(--touch-target-min);
   min-width: var(--touch-target-min);
   padding: 0.875rem 1.25rem;
@@ -120,11 +219,12 @@
   font-family: var(--font-bangla);
   line-height: 1.6;
   text-align: left;
-  border: 2px solid var(--color-border);
-  border-radius: 0.625rem;
-  background: var(--color-bg);
-  color: var(--color-fg);
+  border: 2px solid var(--tr-border);
+  border-radius: var(--tr-radius-md);
+  background: #fff;
+  color: var(--tr-text);
   cursor: pointer;
+  transition: transform 0.12s ease, border-color 0.15s ease, background 0.15s ease;
 }
 
 .option-grid-scale .option-button {
@@ -133,9 +233,28 @@
   text-align: center;
 }
 
+.option-button:hover:not(:disabled) {
+  border-color: var(--tr-accent);
+}
+
+.option-button:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
 .option-button.selected {
-  border-color: var(--color-accent);
-  background: #eef2ff;
+  border-color: var(--tr-accent);
+  background: var(--tr-accent-soft);
+  padding-right: 2.25rem;
+}
+
+.option-button.selected::after {
+  content: '✓';
+  position: absolute;
+  right: 0.75rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--tr-accent-dark);
+  font-weight: 700;
 }
 
 .option-button:disabled {
@@ -152,18 +271,20 @@
 }
 
 .numeric-display {
-  min-height: 3rem;
+  min-height: 3.25rem;
   min-width: 8rem;
   padding: 0.5rem 1rem;
   font-size: 2rem;
   font-variant-numeric: tabular-nums;
   text-align: center;
-  border: 2px solid var(--color-border);
-  border-radius: 0.5rem;
+  border: 2px solid var(--tr-border);
+  border-radius: var(--tr-radius-md);
+  background: var(--tr-accent-soft);
+  color: var(--tr-text);
 }
 
 .numeric-placeholder {
-  color: var(--color-muted);
+  color: var(--tr-muted);
 }
 
 .numeric-keys {
@@ -178,14 +299,26 @@
   min-height: 3.25rem;
   min-width: var(--touch-target-min);
   font-size: 1.375rem;
-  border: 1px solid var(--color-border);
-  border-radius: 0.5rem;
-  background: #f4f5f7;
+  font-weight: 600;
+  border: none;
+  border-radius: var(--tr-radius-md);
+  background: #f3f1ff;
+  color: var(--tr-text);
   cursor: pointer;
+  transition: transform 0.12s ease, background 0.15s ease;
+}
+
+.numeric-key:hover:not(:disabled) {
+  background: var(--tr-accent-soft);
+}
+
+.numeric-key:active:not(:disabled) {
+  transform: scale(0.95);
 }
 
 .numeric-key:disabled {
   cursor: not-allowed;
+  opacity: 0.6;
 }
 
 /* -------------------------------------------------------------- audio record */
@@ -199,26 +332,41 @@
 
 .record-button,
 .rerecord-button {
-  min-height: 3.5rem;
-  min-width: 3.5rem;
-  padding: 0.875rem 1.75rem;
+  min-height: 3.75rem;
+  min-width: 3.75rem;
+  padding: 0.875rem 1.875rem;
   font-size: 1.125rem;
+  font-weight: 700;
   border: none;
-  border-radius: 2rem;
-  background: #d1362f;
+  border-radius: 999px;
+  background: linear-gradient(135deg, var(--tr-warm), var(--tr-warm-dark));
   color: #fff;
   cursor: pointer;
+  box-shadow: 0 6px 16px -4px rgba(229, 108, 80, 0.45);
+  transition: transform 0.12s ease;
+}
+
+.record-button:active,
+.rerecord-button:active {
+  transform: scale(0.97);
 }
 
 .record-button.recording,
 button.record-button.recording {
-  background: #7a1e1a;
-  animation: pulse 1.2s ease-in-out infinite;
+  background: var(--tr-warm-dark);
+  animation: pulse-ring 1.4s ease-out infinite;
 }
 
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.6; }
+@keyframes pulse-ring {
+  0% {
+    box-shadow: 0 0 0 0 rgba(229, 108, 80, 0.5);
+  }
+  70% {
+    box-shadow: 0 0 0 14px rgba(229, 108, 80, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(229, 108, 80, 0);
+  }
 }
 
 .record-result {
@@ -231,6 +379,7 @@ button.record-button.recording {
 .record-result audio {
   width: 100%;
   max-width: 20rem;
+  border-radius: 999px;
 }
 
 /* -------------------------------------------------------------------- intake / resume */
@@ -254,12 +403,22 @@ button.record-button.recording {
   justify-content: center;
 }
 
+.home-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+  margin-top: 0.5rem;
+}
+
 .assigned-code {
   font-size: 2rem;
   font-weight: 700;
   letter-spacing: 0.1em;
   font-variant-numeric: tabular-nums;
   padding: 1rem 1.5rem;
-  border: 2px dashed var(--color-accent);
-  border-radius: 0.75rem;
+  border: 2px dashed var(--tr-accent);
+  border-radius: var(--tr-radius-md);
+  background: var(--tr-accent-soft);
+  color: var(--tr-accent-dark);
 }

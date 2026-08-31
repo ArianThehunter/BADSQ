@@ -64,3 +64,23 @@ export type AudioProps = ResponseProps & {
   durationMs: number | null;
   onRecorded: (blob: Blob, mimeType: string, durationMs: number) => void;
 };
+
+/**
+ * True when a `click` event was synthesized by keyboard activation (Enter/Space
+ * on a focused button) rather than an actual mouse/touch press. Per the UI
+ * Events spec, a click dispatched as a button's default activation behavior
+ * (not from a real pointer click) carries `detail === 0`.
+ *
+ * Every interactive control here uses `onPointerDown` for the primary
+ * interaction, deliberately — it fires at the moment of physical contact,
+ * which is what makes this instrument's response-latency measurement
+ * meaningful. `onPointerDown` never fires for keyboard activation, though
+ * (there is no "pointer" involved), so keyboard-only participants would
+ * otherwise be unable to operate the test at all. Pairing `onPointerDown` with
+ * `onClick` gated by this check adds keyboard support without double-firing
+ * for mouse/touch, where the browser dispatches both pointerdown AND a
+ * subsequent (non-keyboard) click for the same tap.
+ */
+export function isKeyboardClick(e: { detail: number }): boolean {
+  return e.detail === 0;
+}

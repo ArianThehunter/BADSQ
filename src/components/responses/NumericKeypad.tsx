@@ -7,8 +7,9 @@
  * "display" below is a read-only span, not an editable field.
  */
 
-import type { PointerEvent } from 'react';
+import type { MouseEvent, PointerEvent } from 'react';
 import type { TypedProps } from './types';
+import { isKeyboardClick } from './types';
 
 const KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '⌫', '0', 'C'];
 
@@ -19,9 +20,9 @@ export default function NumericKeypad({
   onFirstInteraction,
   onChange,
 }: TypedProps) {
-  function press(e: PointerEvent<HTMLButtonElement>, key: string) {
+  function press(key: string, modality: string) {
     if (disabled) return;
-    if (!hasAnswered) onFirstInteraction(e.pointerType || 'unknown');
+    if (!hasAnswered) onFirstInteraction(modality);
 
     const current = value ?? '';
     if (key === '⌫') {
@@ -31,6 +32,19 @@ export default function NumericKeypad({
     } else {
       onChange(current + key);
     }
+  }
+
+  function handlePointerDown(e: PointerEvent<HTMLButtonElement>, key: string) {
+    press(key, e.pointerType || 'unknown');
+  }
+
+  // Keyboard support is Tab-to-focus-a-key + Enter/Space, deliberately NOT
+  // free typing on a physical keyboard -- see the module doc comment on why a
+  // native <input> is avoided here. This keeps "select one on-screen key at a
+  // time" as the only interaction model regardless of input device.
+  function handleClick(e: MouseEvent<HTMLButtonElement>, key: string) {
+    if (!isKeyboardClick(e)) return;
+    press(key, 'keyboard');
   }
 
   return (
@@ -45,7 +59,8 @@ export default function NumericKeypad({
             type="button"
             className="numeric-key"
             disabled={disabled}
-            onPointerDown={(e) => press(e, k)}
+            onPointerDown={(e) => handlePointerDown(e, k)}
+            onClick={(e) => handleClick(e, k)}
           >
             {k}
           </button>

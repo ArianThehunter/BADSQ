@@ -70,12 +70,18 @@ export async function uploadItemAudio(
  * `responseClientId` is generated client-side (see localDraft.ts) so the path
  * is stable across retries: a failed submit that is retried re-uploads to the
  * SAME path rather than accumulating orphaned blobs per attempt.
- */
-/**
+ *
  * CHANGED IN PHASE 4: `upsert: true` removed (was I1's other viable fix,
  * independent of the badsq-audio SELECT policy — see PHASE_4_REPORT.md).
  * `responseClientId` is a fresh UUID per response, so this path can never
- * collide with an existing object; upsert semantics were never needed here.
+ * collide with ANOTHER response's object -- but that reasoning missed one
+ * case: retrying `handleSubmit()` after a LATER item's upload or the final
+ * `submit_session()` RPC call failed re-uploads to a path THIS SAME response
+ * already wrote in the failed attempt. With `upsert: false` that re-upload
+ * gets rejected as a duplicate, permanently blocking every future retry (the
+ * content is identical either way, so failing here serves no one). Treating
+ * "object already exists" as success restores the retry-safety the function's
+ * own doc comment above promises, without reopening blind overwrite.
  */
 export async function uploadParticipantAudio(
   sessionId: string,
@@ -88,8 +94,14 @@ export async function uploadParticipantAudio(
   const { error } = await supabase.storage
     .from(AUDIO_BUCKET)
     .upload(path, blob, { contentType: mimeType });
-  if (error) fail('Recording upload failed', error);
+  if (error && !isDuplicateObjectError(error)) fail('Recording upload failed', error);
   return path;
+}
+
+/** True for a storage "this object already exists" conflict (HTTP 409/"Duplicate"). */
+function isDuplicateObjectError(error: { message?: string; statusCode?: string | number }): boolean {
+  const status = String(error.statusCode ?? '');
+  return status === '409' || /already exists/i.test(error.message ?? '');
 }
 
 function extensionForMimeType(mimeType: string): string {

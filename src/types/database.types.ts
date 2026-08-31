@@ -1,4 +1,4 @@
-// Generated from the live BADSQ schema (migrations 0001-0006).
+// Generated from the live BADSQ schema (migrations 0001-0010).
 //
 // DO NOT EDIT BY HAND except for the noted fix below. Regenerate after every migration:
 //   supabase gen types typescript --project-id <ref> > src/types/database.types.ts
@@ -23,7 +23,7 @@ export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: "14.17"
+    PostgrestVersion: "14.5"
   }
   public: {
     Tables: {
@@ -36,6 +36,7 @@ export type Database = {
           id: string
           is_reliability_subsample: boolean
           mime_type: string | null
+          notes: string | null
           primary_rated_at: string | null
           primary_rater_id: string | null
           primary_rating: boolean | null
@@ -56,6 +57,7 @@ export type Database = {
           id?: string
           is_reliability_subsample?: boolean
           mime_type?: string | null
+          notes?: string | null
           primary_rated_at?: string | null
           primary_rater_id?: string | null
           primary_rating?: boolean | null
@@ -76,6 +78,7 @@ export type Database = {
           id?: string
           is_reliability_subsample?: boolean
           mime_type?: string | null
+          notes?: string | null
           primary_rated_at?: string | null
           primary_rater_id?: string | null
           primary_rating?: boolean | null
@@ -548,6 +551,7 @@ export type Database = {
           response_latency_from_last_ms: number | null
           scored_by: string | null
           selected_option_key: string | null
+          selection_change_count: number
           session_id: string
           stimulus_first_end_client_ts: number | null
           stimulus_last_end_client_ts: number | null
@@ -572,6 +576,7 @@ export type Database = {
           response_latency_from_last_ms?: number | null
           scored_by?: string | null
           selected_option_key?: string | null
+          selection_change_count?: number
           session_id: string
           stimulus_first_end_client_ts?: number | null
           stimulus_last_end_client_ts?: number | null
@@ -596,6 +601,7 @@ export type Database = {
           response_latency_from_last_ms?: number | null
           scored_by?: string | null
           selected_option_key?: string | null
+          selection_change_count?: number
           session_id?: string
           stimulus_first_end_client_ts?: number | null
           stimulus_last_end_client_ts?: number | null
@@ -776,10 +782,8 @@ export type Database = {
       can_rate: { Args: never; Returns: boolean }
       generate_participant_code: { Args: never; Returns: string }
       is_researcher: { Args: never; Returns: boolean }
+      reliability_subsample_rate: { Args: never; Returns: number }
       save_item_version: {
-        // p_old_item_id is nullable at the SQL level (NULL = brand-new item);
-        // the generator does not encode function-parameter nullability, so this
-        // was corrected by hand from `p_old_item_id: string`. See file header.
         Args: { p_item: Json; p_old_item_id: string | null; p_options: Json }
         Returns: string
       }

@@ -13,9 +13,10 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
-import type { PointerEvent } from 'react';
+import type { MouseEvent, PointerEvent } from 'react';
 import { pickSupportedAudioMimeType } from '../../lib/media';
 import type { AudioProps } from './types';
+import { isKeyboardClick } from './types';
 
 type Phase = 'idle' | 'requesting' | 'recording' | 'recorded' | 'error';
 
@@ -56,18 +57,41 @@ export default function AudioRecord({
     };
   }, []);
 
-  async function startRecording(e: PointerEvent<HTMLButtonElement>) {
+  async function startRecording(modality: string) {
     if (disabled || phase === 'requesting' || phase === 'recording') return;
-    if (!hasAnswered) onFirstInteraction(e.pointerType || 'unknown');
+    if (!hasAnswered) onFirstInteraction(modality);
 
     setError(null);
     setPhase('requesting');
     try {
+      // Microphone access requires a secure context (HTTPS, or localhost for
+      // dev). On a plain http://<lan-ip> deployment — the most likely mistake
+      // when field-testing on a phone against a laptop's dev server —
+      // `navigator.mediaDevices` is undefined entirely, which otherwise throws
+      // an unhelpful "Cannot read properties of undefined" here.
+      if (!navigator.mediaDevices?.getUserMedia) {
+        throw new Error(
+          'Microphone access is unavailable. This usually means the page was not opened over ' +
+            'HTTPS (or localhost) — check the address bar shows a secure connection.',
+        );
+      }
       const type = pickSupportedAudioMimeType();
       if (!type) {
         throw new Error('This device does not report support for any audio recording format.');
       }
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      } catch (mediaErr) {
+        const name = mediaErr instanceof DOMException ? mediaErr.name : '';
+        if (name === 'NotAllowedError' || name === 'PermissionDeniedError') {
+          throw new Error('Microphone permission was denied. Allow microphone access for this site and try again.');
+        }
+        if (name === 'NotFoundError' || name === 'DevicesNotFoundError') {
+          throw new Error('No microphone was found on this device.');
+        }
+        throw mediaErr;
+      }
       streamRef.current = stream;
       const recorder = new MediaRecorder(stream, { mimeType: type });
       chunksRef.current = [];
@@ -96,6 +120,23 @@ export default function AudioRecord({
     recorderRef.current?.stop();
   }
 
+  function handlePointerDown(e: PointerEvent<HTMLButtonElement>) {
+    void startRecording(e.pointerType || 'unknown');
+  }
+
+  // See isKeyboardClick's doc comment: keyboard activation (Enter/Space) never
+  // fires onPointerDown, so every recorder control needs this to be operable
+  // without a mouse or touchscreen, guarded so a real tap doesn't double-fire.
+  function handleClick(e: MouseEvent<HTMLButtonElement>) {
+    if (!isKeyboardClick(e)) return;
+    void startRecording('keyboard');
+  }
+
+  function handleStopClick(e: MouseEvent<HTMLButtonElement>) {
+    if (!isKeyboardClick(e)) return;
+    stopRecording();
+  }
+
   return (
     <div className="audio-record">
       {phase === 'idle' || phase === 'requesting' ? (
@@ -103,18 +144,30 @@ export default function AudioRecord({
           type="button"
           className="record-button"
           disabled={disabled || phase === 'requesting'}
-          onPointerDown={startRecording}
+          onPointerDown={handlePointerDown}
+          onClick={handleClick}
         >
           {phase === 'requesting' ? 'Starting…' : '● Record'}
         </button>
       ) : phase === 'recording' ? (
-        <button type="button" className="record-button recording" onPointerDown={stopRecording}>
+        <button
+          type="button"
+          className="record-button recording"
+          onPointerDown={stopRecording}
+          onClick={handleStopClick}
+        >
           ■ Stop
         </button>
       ) : (
         <div className="record-result">
           {previewUrl && <audio controls src={previewUrl} />}
-          <button type="button" className="rerecord-button" disabled={disabled} onPointerDown={startRecording}>
+          <button
+            type="button"
+            className="rerecord-button"
+            disabled={disabled}
+            onPointerDown={handlePointerDown}
+            onClick={handleClick}
+          >
             ● Record again
           </button>
         </div>
