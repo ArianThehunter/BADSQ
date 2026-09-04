@@ -22,6 +22,9 @@ export type PublicItem = {
   is_practice: boolean;
   is_scored: boolean;
   display_order: number | null;
+  /** Only ever non-null when is_practice is true -- see public_items view
+   * (migration 0017). Real items never expose their answer key here. */
+  practice_correct_answer: string | null;
 };
 
 export type PublicItemOption = {

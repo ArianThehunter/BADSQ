@@ -42,6 +42,8 @@ const FORMATS: ResponseFormat[] = [
   'NUMERIC_KEYPAD',
   'LIKERT_5',
   'AUDIO_RECORD',
+  'FLASH_JUDGMENT',
+  'LETTER_SPAN',
 ];
 const DOMAINS = ['1', '2', '3', '4', '5', 'criterion'];
 const OPTION_KEYS = ['A', 'B', 'C', 'D', 'E'];
@@ -493,10 +495,37 @@ export default function ItemBankEditor({ profile }: { profile: ResearcherProfile
             />
           </label>
         )}
+        {d.response_format === 'LETTER_SPAN' && (
+          <label className="block">
+            Correct answer (letters, in order — e.g. শজবণ)
+            <input
+              lang="bn"
+              value={d.correct_answer ?? ''}
+              onChange={(e) => patch({ correct_answer: e.target.value || null })}
+            />
+          </label>
+        )}
+        {d.response_format === 'AUDIO_RECORD' && (
+          <label className="block">
+            Reference answer (optional — shown to the researcher in the Rating Queue, e.g. the digit/letter
+            sequence the participant should have said; never checked automatically)
+            <input
+              lang="bn"
+              value={d.correct_answer ?? ''}
+              onChange={(e) => patch({ correct_answer: e.target.value || null })}
+            />
+          </label>
+        )}
 
         {choice && (
           <fieldset>
             <legend>Options</legend>
+            {!d.is_scored && (
+              <p className="muted small">
+                This item is unscored — "Correct" below is reference ground truth for your own
+                offline analysis only. Nothing in the running tool reads it.
+              </p>
+            )}
             {d.options.map((o, i) => (
               <div className="option-row" key={o.option_key}>
                 <span className="option-key">{o.option_key}</span>
@@ -506,7 +535,7 @@ export default function ItemBankEditor({ profile }: { profile: ResearcherProfile
                   onChange={(e) => patchOption(i, { option_text: e.target.value })}
                   placeholder="Option text (Bangla)"
                 />
-                <label className="inline">
+                <label className={d.is_scored ? 'inline' : 'inline muted'}>
                   <input
                     type="checkbox"
                     checked={o.is_correct}

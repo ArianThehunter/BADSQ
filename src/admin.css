@@ -430,3 +430,189 @@ tr.retired td {
   font-size: 0.8125rem;
   min-height: 0;
 }
+
+/* ------------------------------------------------- recording review cards */
+/* Used by the Rating Queue and the Participants drill-down (RecordingCard).
+   Cards rather than table rows: reviewing audio is "one at a time" work, and
+   the Bangla stimulus plus a player plus a decision does not fit a dense row
+   legibly. */
+
+.rec-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+  margin-top: 1rem;
+}
+
+.rec-card {
+  border: 1px solid var(--color-border);
+  border-left: 4px solid var(--color-accent);
+  border-radius: 0.375rem;
+  padding: 0.875rem 1rem;
+  background: var(--color-bg);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+/* Already-decided recordings recede, so what's left to do stands out. */
+.rec-card.rated {
+  border-left-color: #0f7b3f;
+  background: #fcfdfc;
+}
+
+.rec-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.rec-item-code {
+  font-weight: 700;
+  font-size: 1rem;
+}
+
+.rec-subdomain {
+  margin-left: 0.5rem;
+}
+
+.rec-stimulus {
+  margin: 0;
+  font-size: 1.0625rem;
+  max-width: none;
+}
+
+.rec-expected {
+  margin: 0;
+  color: var(--color-muted);
+}
+
+.rec-audio {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.rec-audio audio {
+  height: 2.25rem;
+  max-width: 100%;
+}
+
+.rec-rate {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--color-border);
+}
+
+.rec-rate-label {
+  font-weight: 600;
+}
+
+.rec-rate-buttons {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+/* The chosen judgment must be obvious at a glance when scrolling back. */
+button.choice {
+  min-width: 7rem;
+}
+
+button.choice.selected-yes {
+  background: #dcf3e5;
+  border-color: #0f7b3f;
+  color: #0f5c31;
+  font-weight: 700;
+}
+
+button.choice.selected-no {
+  background: #fdf3f2;
+  border-color: #b3261e;
+  color: #8c1d18;
+  font-weight: 700;
+}
+
+.rec-rate-state {
+  margin-left: 0.25rem;
+}
+
+.rec-extras {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.rec-extras label.inline {
+  margin-bottom: 0;
+  font-weight: 400;
+  cursor: help;
+}
+
+.rec-note {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  max-width: 32rem;
+}
+
+.rec-note textarea {
+  resize: vertical;
+  width: 100%;
+}
+
+.rec-note button {
+  align-self: flex-start;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.8125rem;
+  min-height: 0;
+}
+
+button.link-button {
+  background: none;
+  border: none;
+  padding: 0;
+  min-height: 0;
+  color: var(--color-accent);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.rec-pending-pill {
+  margin-left: 0.5rem;
+  background: #fff3d6;
+  color: #7a4d00;
+}
+
+/* -------------------------------------------- expandable participant rows */
+
+tr.row-clickable {
+  cursor: pointer;
+}
+
+tr.row-clickable:hover td {
+  background: #f6f8fb;
+}
+
+tr.row-open td {
+  background: #f6f8fb;
+  font-weight: 600;
+}
+
+.row-caret {
+  display: inline-block;
+  width: 0.75rem;
+  color: var(--color-muted);
+}
+
+tr.row-detail td {
+  background: #fbfcfe;
+  padding: 0.5rem 1rem 1rem;
+}

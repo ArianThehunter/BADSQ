@@ -31,7 +31,9 @@ export type ResponseFormat =
   | 'TRI_TAP'
   | 'NUMERIC_KEYPAD'
   | 'LIKERT_5'
-  | 'AUDIO_RECORD';
+  | 'AUDIO_RECORD'
+  | 'FLASH_JUDGMENT'
+  | 'LETTER_SPAN';
 
 export type ScoringMode = 'auto' | 'human_rated';
 
@@ -71,13 +73,27 @@ export type BlockerCode =
 export type Blocker = { code: BlockerCode; message: string };
 
 /** Formats where the participant chooses from a stored option list. */
-export const CHOICE_FORMATS: ResponseFormat[] = ['MCQ_TAP', 'BINARY_TAP', 'TRI_TAP', 'LIKERT_5'];
+export const CHOICE_FORMATS: ResponseFormat[] = [
+  'MCQ_TAP',
+  'BINARY_TAP',
+  'TRI_TAP',
+  'LIKERT_5',
+  'FLASH_JUDGMENT',
+];
 
 /**
  * Formats that carry a right answer at all. TRI_TAP and LIKERT_5 are self-report
  * scales and have no correct response by design; AUDIO_RECORD is human-rated.
+ * LETTER_SPAN uses `correct_answer` the same way NUMERIC_KEYPAD does (the
+ * expected tapped sequence), not stored options.
  */
-export const SCORABLE_FORMATS: ResponseFormat[] = ['MCQ_TAP', 'BINARY_TAP', 'NUMERIC_KEYPAD'];
+export const SCORABLE_FORMATS: ResponseFormat[] = [
+  'MCQ_TAP',
+  'BINARY_TAP',
+  'NUMERIC_KEYPAD',
+  'FLASH_JUDGMENT',
+  'LETTER_SPAN',
+];
 
 export const isChoiceFormat = (f: ResponseFormat) => CHOICE_FORMATS.includes(f);
 
@@ -98,7 +114,7 @@ export function hasAnswerKey(item: DraftItem): boolean {
   if (isChoiceFormat(item.response_format)) {
     return item.options.some((o) => o.is_correct);
   }
-  if (item.response_format === 'NUMERIC_KEYPAD') {
+  if (item.response_format === 'NUMERIC_KEYPAD' || item.response_format === 'LETTER_SPAN') {
     return (item.correct_answer ?? '').trim().length > 0;
   }
   return false;
@@ -136,7 +152,7 @@ export function activationBlockers(item: DraftItem): Blocker[] {
     blockers.push({
       code: 'NO_ANSWER_KEY',
       message:
-        item.response_format === 'NUMERIC_KEYPAD'
+        item.response_format === 'NUMERIC_KEYPAD' || item.response_format === 'LETTER_SPAN'
           ? 'This item is scored but has no correct answer. Responses would be left unscored.'
           : 'This item is scored but no option is marked correct. Responses would be left unscored.',
     });

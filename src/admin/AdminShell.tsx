@@ -79,7 +79,7 @@ export default function AdminShell({
 
       <main className="admin-main">
         {tab === 'items' && <ItemBankEditor profile={profile} />}
-        {tab === 'participants' && <ParticipantsView />}
+        {tab === 'participants' && <ParticipantsView profile={profile} />}
         {tab === 'rating' && <RatingQueue profile={profile} />}
         {tab === 'health' && <HealthView />}
       </main>

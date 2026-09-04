@@ -115,6 +115,17 @@ body.badsq-test-mode .error {
   color: var(--tr-text);
 }
 
+/* FLASH_JUDGMENT's briefly-shown word -- large and centered, matching the
+   "read it once, then it's gone" design intent (see FlashJudgment.tsx). */
+.flash-word {
+  font-size: 2.25rem;
+  font-weight: 700;
+  line-height: 1.6;
+  text-align: center;
+  padding: 2rem 0;
+  color: var(--tr-text);
+}
+
 .replay-row {
   display: flex;
   gap: 0.75rem;
@@ -144,9 +155,56 @@ body.badsq-test-mode .error {
   transform: scale(0.96);
 }
 
+/* The manual first-play trigger (audio never autoplays) -- more prominent
+   than a plain replay pill since it's the required next action, not an
+   optional re-listen. */
+.replay-button.primary {
+  background: var(--tr-accent-dark);
+  color: #fff;
+  font-size: 1rem;
+  padding: 0.75rem 1.5rem;
+}
+
+.replay-button.primary:hover {
+  background: var(--tr-accent-dark);
+  filter: brightness(1.08);
+}
+
 .response-area {
   flex: 1;
   transition: opacity 0.15s;
+}
+
+.encouragement-line {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--tr-accent-dark);
+  text-align: center;
+  margin-bottom: 0.5rem;
+}
+
+.practice-feedback {
+  border-radius: var(--tr-radius-md);
+  padding: 0.875rem 1.125rem;
+  font-weight: 600;
+  text-align: center;
+}
+
+.practice-feedback.correct {
+  background: rgba(63, 174, 130, 0.14);
+  color: var(--tr-success);
+}
+
+.practice-feedback.incorrect {
+  background: rgba(255, 138, 112, 0.16);
+  color: var(--tr-warm-dark);
+}
+
+/* AUDIO_RECORD demos: the expected answer shown as a reference, with no
+   right/wrong verdict -- spoken answers can't be auto-judged. */
+.practice-feedback.neutral {
+  background: var(--tr-accent-soft);
+  color: var(--tr-accent-dark);
 }
 
 /* Disabled state is visible, not just non-functional -- a greyed-out control

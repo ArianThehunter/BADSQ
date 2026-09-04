@@ -7,7 +7,7 @@
  * "display" below is a read-only span, not an editable field.
  */
 
-import type { MouseEvent, PointerEvent } from 'react';
+import type { KeyboardEvent, MouseEvent, PointerEvent } from 'react';
 import type { TypedProps } from './types';
 import { isKeyboardClick } from './types';
 
@@ -42,6 +42,16 @@ export default function NumericKeypad({
   // free typing on a physical keyboard -- see the module doc comment on why a
   // native <input> is avoided here. This keeps "select one on-screen key at a
   // time" as the only interaction model regardless of input device.
+  //
+  // Timed on keydown, not the resulting click -- see OptionGrid's module doc
+  // comment for why (click-on-keyup vs pointerdown is a real latency bias).
+  function handleKeyDown(e: KeyboardEvent<HTMLButtonElement>, key: string) {
+    if (e.key !== 'Enter' && e.key !== ' ' && e.key !== 'Spacebar') return;
+    e.preventDefault();
+    press(key, 'keyboard');
+  }
+
+  // Backstop only -- see OptionGrid's module doc comment.
   function handleClick(e: MouseEvent<HTMLButtonElement>, key: string) {
     if (!isKeyboardClick(e)) return;
     press(key, 'keyboard');
@@ -60,6 +70,7 @@ export default function NumericKeypad({
             className="numeric-key"
             disabled={disabled}
             onPointerDown={(e) => handlePointerDown(e, k)}
+            onKeyDown={(e) => handleKeyDown(e, k)}
             onClick={(e) => handleClick(e, k)}
           >
             {k}

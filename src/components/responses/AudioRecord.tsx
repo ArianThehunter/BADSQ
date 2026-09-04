@@ -13,7 +13,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
-import type { MouseEvent, PointerEvent } from 'react';
+import type { KeyboardEvent, MouseEvent, PointerEvent } from 'react';
 import { pickSupportedAudioMimeType } from '../../lib/media';
 import type { AudioProps } from './types';
 import { isKeyboardClick } from './types';
@@ -124,9 +124,24 @@ export default function AudioRecord({
     void startRecording(e.pointerType || 'unknown');
   }
 
-  // See isKeyboardClick's doc comment: keyboard activation (Enter/Space) never
-  // fires onPointerDown, so every recorder control needs this to be operable
-  // without a mouse or touchscreen, guarded so a real tap doesn't double-fire.
+  // Timed on keydown, not the resulting click -- see OptionGrid's module doc
+  // comment for why (click-on-keyup vs pointerdown is a real latency bias).
+  // The Stop button isn't latency-critical (recording duration is tracked
+  // separately, not as response latency), but keydown is used there too for
+  // consistent, immediate keyboard behaviour.
+  function handleKeyDown(e: KeyboardEvent<HTMLButtonElement>) {
+    if (e.key !== 'Enter' && e.key !== ' ' && e.key !== 'Spacebar') return;
+    e.preventDefault();
+    void startRecording('keyboard');
+  }
+
+  function handleStopKeyDown(e: KeyboardEvent<HTMLButtonElement>) {
+    if (e.key !== 'Enter' && e.key !== ' ' && e.key !== 'Spacebar') return;
+    e.preventDefault();
+    stopRecording();
+  }
+
+  // Backstop only -- see OptionGrid's module doc comment.
   function handleClick(e: MouseEvent<HTMLButtonElement>) {
     if (!isKeyboardClick(e)) return;
     void startRecording('keyboard');
@@ -145,6 +160,7 @@ export default function AudioRecord({
           className="record-button"
           disabled={disabled || phase === 'requesting'}
           onPointerDown={handlePointerDown}
+          onKeyDown={handleKeyDown}
           onClick={handleClick}
         >
           {phase === 'requesting' ? 'Starting…' : '● Record'}
@@ -154,6 +170,7 @@ export default function AudioRecord({
           type="button"
           className="record-button recording"
           onPointerDown={stopRecording}
+          onKeyDown={handleStopKeyDown}
           onClick={handleStopClick}
         >
           ■ Stop
@@ -166,6 +183,7 @@ export default function AudioRecord({
             className="rerecord-button"
             disabled={disabled}
             onPointerDown={handlePointerDown}
+            onKeyDown={handleKeyDown}
             onClick={handleClick}
           >
             ● Record again

@@ -46,11 +46,34 @@ export type ResponseDraft = {
   inputModality: 'touch' | 'mouse' | 'pen' | 'keyboard' | 'unknown' | null;
   viewportWidth: number | null;
   viewportHeight: number | null;
-  replayCountInstruction: number;
-  replayCountStimulus: number;
+  /**
+   * NULL means "this item has no instruction/stimulus audio at all", distinct
+   * from 0 ("it has audio, never replayed"). See migration 0011.
+   */
+  replayCountInstruction: number | null;
+  replayCountStimulus: number | null;
   technicalRetryCount: number;
   /** Set on first interaction; timing/modality fields freeze after this. */
   hasAnswered: boolean;
+};
+
+/** Background info + consent-replication answers -- collected before the test
+ * starts, with no time tracking (see TestRunner's 'background-info' and
+ * 'consent-questions' phases). */
+export type BackgroundInfo = {
+  ageYears: number | null;
+  gender: 'boy' | 'girl' | 'prefer_not_to_say' | null;
+  homeArea: 'urban' | 'rural' | null;
+};
+
+/** Mirrors the three family-history questions on the paper parental-consent
+ * form -- the participant re-selects what their parent already marked there. */
+export type ConsentAnswers = {
+  q1DoctorEval: boolean | null;
+  q1SchoolEval: boolean | null;
+  q1NotSure: boolean | null;
+  q2ExtraPrimarySupport: 'yes' | 'no' | 'not_sure' | null;
+  q3FamilyHistory: 'yes' | 'no' | 'not_sure' | null;
 };
 
 export type LocalDraft = {
@@ -58,6 +81,8 @@ export type LocalDraft = {
   assignedCode: string;
   startedAtMs: number;
   classGrade: 6 | 7 | 8 | null;
+  background: BackgroundInfo;
+  consent: ConsentAnswers;
   currentItemIndex: number;
   responses: Record<string, ResponseDraft>;
 };
@@ -107,6 +132,14 @@ export function newEmptyDraft(sessionId: string, assignedCode: string): LocalDra
     assignedCode,
     startedAtMs: Date.now(),
     classGrade: null,
+    background: { ageYears: null, gender: null, homeArea: null },
+    consent: {
+      q1DoctorEval: null,
+      q1SchoolEval: null,
+      q1NotSure: null,
+      q2ExtraPrimarySupport: null,
+      q3FamilyHistory: null,
+    },
     currentItemIndex: 0,
     responses: {},
   };

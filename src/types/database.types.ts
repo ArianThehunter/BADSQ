@@ -1,4 +1,4 @@
-// Generated from the live BADSQ schema (migrations 0001-0010).
+// Generated from the live BADSQ schema (migrations 0001-0017).
 //
 // DO NOT EDIT BY HAND except for the noted fix below. Regenerate after every migration:
 //   supabase gen types typescript --project-id <ref> > src/types/database.types.ts
@@ -98,6 +98,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "researchers"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "audio_recordings_response_id_fkey"
+            columns: ["response_id"]
+            isOneToOne: true
+            referencedRelation: "full_export_v1"
+            referencedColumns: ["response_id"]
           },
           {
             foreignKeyName: "audio_recordings_response_id_fkey"
@@ -239,6 +246,50 @@ export type Database = {
           },
         ]
       }
+      domain_intros: {
+        Row: {
+          active: boolean
+          created_at: string
+          display_order: number
+          domain: string
+          edited_by: string | null
+          id: string
+          intro_audio_path: string | null
+          intro_text: string
+          subdomain: string | null
+        }
+        Insert: {
+          active?: boolean
+          created_at?: string
+          display_order: number
+          domain: string
+          edited_by?: string | null
+          id?: string
+          intro_audio_path?: string | null
+          intro_text: string
+          subdomain?: string | null
+        }
+        Update: {
+          active?: boolean
+          created_at?: string
+          display_order?: number
+          domain?: string
+          edited_by?: string | null
+          id?: string
+          intro_audio_path?: string | null
+          intro_text?: string
+          subdomain?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "domain_intros_edited_by_fkey"
+            columns: ["edited_by"]
+            isOneToOne: false
+            referencedRelation: "researchers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       domain_score_results: {
         Row: {
           computed_at: string
@@ -283,6 +334,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "participants"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "domain_score_results_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "full_export_v1"
+            referencedColumns: ["session_id"]
           },
           {
             foreignKeyName: "domain_score_results_session_id_fkey"
@@ -481,28 +539,37 @@ export type Database = {
       participants: {
         Row: {
           age_months: number | null
+          age_years: number | null
           anonymized_code: string
           class_grade: number
           created_at: string
           created_by_auth_uid: string | null
+          gender: string | null
+          home_area: string | null
           id: string
           school_id: string | null
         }
         Insert: {
           age_months?: number | null
+          age_years?: number | null
           anonymized_code: string
           class_grade: number
           created_at?: string
           created_by_auth_uid?: string | null
+          gender?: string | null
+          home_area?: string | null
           id?: string
           school_id?: string | null
         }
         Update: {
           age_months?: number | null
+          age_years?: number | null
           anonymized_code?: string
           class_grade?: number
           created_at?: string
           created_by_auth_uid?: string | null
+          gender?: string | null
+          home_area?: string | null
           id?: string
           school_id?: string | null
         }
@@ -544,8 +611,8 @@ export type Database = {
           is_superseded: boolean
           item_id: string
           raw_client_event_log: Json | null
-          replay_count_instruction: number
-          replay_count_stimulus: number
+          replay_count_instruction: number | null
+          replay_count_stimulus: number | null
           response_client_ts: number | null
           response_latency_from_first_ms: number | null
           response_latency_from_last_ms: number | null
@@ -569,8 +636,8 @@ export type Database = {
           is_superseded?: boolean
           item_id: string
           raw_client_event_log?: Json | null
-          replay_count_instruction?: number
-          replay_count_stimulus?: number
+          replay_count_instruction?: number | null
+          replay_count_stimulus?: number | null
           response_client_ts?: number | null
           response_latency_from_first_ms?: number | null
           response_latency_from_last_ms?: number | null
@@ -594,8 +661,8 @@ export type Database = {
           is_superseded?: boolean
           item_id?: string
           raw_client_event_log?: Json | null
-          replay_count_instruction?: number
-          replay_count_stimulus?: number
+          replay_count_instruction?: number | null
+          replay_count_stimulus?: number | null
           response_client_ts?: number | null
           response_latency_from_first_ms?: number | null
           response_latency_from_last_ms?: number | null
@@ -625,6 +692,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "public_items"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "responses_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "full_export_v1"
+            referencedColumns: ["session_id"]
           },
           {
             foreignKeyName: "responses_session_id_fkey"
@@ -678,6 +752,56 @@ export type Database = {
       }
     }
     Views: {
+      full_export_v1: {
+        Row: {
+          age_months: number | null
+          age_years: number | null
+          anonymized_code: string | null
+          attempt_number: number | null
+          audio_duration_ms: number | null
+          audio_marked_correct: boolean | null
+          audio_mime_type: string | null
+          audio_notes: string | null
+          audio_storage_path: string | null
+          class_grade: number | null
+          domain: string | null
+          gender: string | null
+          home_area: string | null
+          input_modality: string | null
+          is_correct: boolean | null
+          is_reliability_subsample: boolean | null
+          is_superseded: boolean | null
+          item_code: string | null
+          q1_doctor_eval: boolean | null
+          q1_not_sure: boolean | null
+          q1_school_eval: boolean | null
+          q2_extra_primary_support: string | null
+          q3_family_history: string | null
+          replay_count_instruction: number | null
+          replay_count_stimulus: number | null
+          response_client_ts: number | null
+          response_format: string | null
+          response_id: string | null
+          response_latency_from_first_ms: number | null
+          response_latency_from_last_ms: number | null
+          scored_by: string | null
+          scoring_mode: string | null
+          selected_option_key: string | null
+          selection_change_count: number | null
+          session_ended_at: string | null
+          session_id: string | null
+          session_started_at: string | null
+          stimulus_first_end_client_ts: number | null
+          stimulus_last_end_client_ts: number | null
+          subdomain: string | null
+          submitted_at: string | null
+          technical_retry_count: number | null
+          typed_value: string | null
+          viewport_height: number | null
+          viewport_width: number | null
+        }
+        Relationships: []
+      }
       ml_export_v1: {
         Row: {
           anonymized_code: string | null
@@ -736,6 +860,7 @@ export type Database = {
           is_scored: boolean | null
           is_stimulus_replayable: boolean | null
           item_code: string | null
+          practice_correct_answer: string | null
           response_format: string | null
           stimulus_audio_path: string | null
           stimulus_text: string | null
@@ -752,6 +877,7 @@ export type Database = {
           is_scored?: boolean | null
           is_stimulus_replayable?: boolean | null
           item_code?: string | null
+          practice_correct_answer?: never
           response_format?: string | null
           stimulus_audio_path?: string | null
           stimulus_text?: string | null
@@ -768,6 +894,7 @@ export type Database = {
           is_scored?: boolean | null
           is_stimulus_replayable?: boolean | null
           item_code?: string | null
+          practice_correct_answer?: never
           response_format?: string | null
           stimulus_audio_path?: string | null
           stimulus_text?: string | null
@@ -795,7 +922,12 @@ export type Database = {
         }[]
       }
       submit_session: {
-        Args: { p_participant: Json; p_responses: Json; p_session_id: string }
+        Args: {
+          p_consent?: Json
+          p_participant: Json
+          p_responses: Json
+          p_session_id: string
+        }
         Returns: string
       }
     }
@@ -816,12 +948,12 @@ export type Tables<
   DefaultSchemaTableNameOrOptions extends
     | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
         DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -845,11 +977,11 @@ export type TablesInsert<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -870,11 +1002,11 @@ export type TablesUpdate<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -895,11 +1027,11 @@ export type Enums<
   DefaultSchemaEnumNameOrOptions extends
     | keyof DefaultSchema["Enums"]
     | { schema: keyof DatabaseWithoutInternals },
-  EnumName extends DefaultSchemaEnumNameOrOptions extends {
+  EnumName extends (DefaultSchemaEnumNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaEnumNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -912,11 +1044,11 @@ export type CompositeTypes<
   PublicCompositeTypeNameOrOptions extends
     | keyof DefaultSchema["CompositeTypes"]
     | { schema: keyof DatabaseWithoutInternals },
-  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
+  CompositeTypeName extends (PublicCompositeTypeNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
-    : never = never,
+    : never) = never,
 > = PublicCompositeTypeNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }

@@ -7,7 +7,7 @@
  */
 
 import { useEffect, useState } from 'react';
-import { getHealthSummary, type HealthSummary } from '../lib/adminData';
+import { getHealthSummary, downloadFullExportCsv, type HealthSummary } from '../lib/adminData';
 
 function Stat({ label, value, warn }: { label: string; value: number; warn?: boolean }) {
   return (
@@ -21,6 +21,8 @@ function Stat({ label, value, warn }: { label: string; value: number; warn?: boo
 export default function HealthView() {
   const [summary, setSummary] = useState<HealthSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
+  const [exportMessage, setExportMessage] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -35,6 +37,23 @@ export default function HealthView() {
       cancelled = true;
     };
   }, []);
+
+  async function handleExport() {
+    setExporting(true);
+    setExportMessage(null);
+    try {
+      const count = await downloadFullExportCsv();
+      setExportMessage(
+        count === 0
+          ? 'No responses exist yet — nothing to export.'
+          : `Downloaded ${count} row(s) as CSV.`,
+      );
+    } catch (err) {
+      setExportMessage(err instanceof Error ? err.message : String(err));
+    } finally {
+      setExporting(false);
+    }
+  }
 
   if (error) return <div className="notice notice-error">{error}</div>;
   if (!summary) return <p className="muted">Loading…</p>;
@@ -62,6 +81,23 @@ export default function HealthView() {
           participants.
         </p>
       )}
+
+      <div className="notice" style={{ marginTop: '1.5rem' }}>
+        <h3 style={{ marginTop: 0 }}>Full raw-data export</h3>
+        <p className="muted small">
+          Every raw column collected about every participant — one row per response, including
+          background info, consent answers, latency, replay counts, and audio metadata.
+          <code>is_correct</code> is intentionally NULL for every format — all scoring happens in
+          your own offline analysis against the answer key already in the item bank. For
+          <code> AUDIO_RECORD</code> responses specifically, the export also includes a playable
+          URL to the recording and, if a researcher has rated it in the Rating Queue, that
+          reference correct/incorrect judgment (a separate column, not <code>is_correct</code>).
+        </p>
+        <button type="button" className="primary" disabled={exporting} onClick={() => void handleExport()}>
+          {exporting ? 'Preparing…' : 'Download full dataset (CSV)'}
+        </button>
+        {exportMessage && <p className="muted small">{exportMessage}</p>}
+      </div>
     </div>
   );
 }
