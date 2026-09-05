@@ -22,7 +22,9 @@ import { useEffect, useState } from 'react';
 import OptionGrid from './OptionGrid';
 import type { ChoiceProps } from './types';
 
-export const FLASH_EXPOSURE_MS = 2000;
+/** Exposure window for the flashed word, for both the 4.2.0 demo and every
+ * real 4.2 item. Reduced from 2000ms per the researcher's revision. */
+export const FLASH_EXPOSURE_MS = 1500;
 
 export default function FlashJudgment({
   item,

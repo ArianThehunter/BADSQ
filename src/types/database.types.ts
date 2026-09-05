@@ -1,4 +1,4 @@
-// Generated from the live BADSQ schema (migrations 0001-0017).
+// Generated from the live BADSQ schema (migrations 0001-0023).
 //
 // DO NOT EDIT BY HAND except for the noted fix below. Regenerate after every migration:
 //   supabase gen types typescript --project-id <ref> > src/types/database.types.ts
@@ -40,6 +40,7 @@ export type Database = {
           primary_rated_at: string | null
           primary_rater_id: string | null
           primary_rating: boolean | null
+          primary_verdict: string | null
           rating_status: string
           response_id: string
           scheduled_deletion_at: string | null
@@ -61,6 +62,7 @@ export type Database = {
           primary_rated_at?: string | null
           primary_rater_id?: string | null
           primary_rating?: boolean | null
+          primary_verdict?: string | null
           rating_status?: string
           response_id: string
           scheduled_deletion_at?: string | null
@@ -82,6 +84,7 @@ export type Database = {
           primary_rated_at?: string | null
           primary_rater_id?: string | null
           primary_rating?: boolean | null
+          primary_verdict?: string | null
           rating_status?: string
           response_id?: string
           scheduled_deletion_at?: string | null
@@ -754,7 +757,6 @@ export type Database = {
     Views: {
       full_export_v1: {
         Row: {
-          age_months: number | null
           age_years: number | null
           anonymized_code: string | null
           attempt_number: number | null
@@ -762,13 +764,13 @@ export type Database = {
           audio_marked_correct: boolean | null
           audio_mime_type: string | null
           audio_notes: string | null
+          audio_review_verdict: string | null
           audio_storage_path: string | null
           class_grade: number | null
           domain: string | null
           gender: string | null
           home_area: string | null
           input_modality: string | null
-          is_correct: boolean | null
           is_reliability_subsample: boolean | null
           is_superseded: boolean | null
           item_code: string | null
@@ -784,7 +786,6 @@ export type Database = {
           response_id: string | null
           response_latency_from_first_ms: number | null
           response_latency_from_last_ms: number | null
-          scored_by: string | null
           scoring_mode: string | null
           selected_option_key: string | null
           selection_change_count: number | null
@@ -825,8 +826,87 @@ export type Database = {
         }
         Relationships: []
       }
+      participant_summary_v1: {
+        Row: {
+          anonymized_code: string | null
+          class_grade: number | null
+          age_years: number | null
+          gender: string | null
+          home_area: string | null
+          q1_doctor_eval: boolean | null
+          q1_school_eval: boolean | null
+          q1_not_sure: boolean | null
+          q2_extra_primary_support: string | null
+          q3_family_history: string | null
+          session_started_at: string | null
+          session_ended_at: string | null
+          session_minutes: number | null
+          responses_total: number | null
+          audio_total: number | null
+          audio_correct: number | null
+          audio_incorrect: number | null
+          audio_unclear: number | null
+          audio_unreviewed: number | null
+          mean_latency_ms_all: number | null
+          replays_stimulus_total: number | null
+          replays_instruction_total: number | null
+          main_input_modality: string | null
+          d1_1_answered: number | null
+          d1_1_mean_latency_ms: number | null
+          d1_1_replays: number | null
+          d1_2_answered: number | null
+          d1_2_mean_latency_ms: number | null
+          d1_2_replays: number | null
+          d1_3_answered: number | null
+          d1_3_mean_latency_ms: number | null
+          d1_3_replays: number | null
+          d1_4_answered: number | null
+          d1_4_mean_latency_ms: number | null
+          d1_4_replays: number | null
+          d2_1_answered: number | null
+          d2_1_mean_latency_ms: number | null
+          d2_1_replays: number | null
+          d2_2_answered: number | null
+          d2_2_mean_latency_ms: number | null
+          d2_2_replays: number | null
+          d2_3_answered: number | null
+          d2_3_mean_latency_ms: number | null
+          d2_3_replays: number | null
+          d2_4_answered: number | null
+          d2_4_mean_latency_ms: number | null
+          d2_4_replays: number | null
+          d2_5_answered: number | null
+          d2_5_mean_latency_ms: number | null
+          d2_5_replays: number | null
+          d2_6_answered: number | null
+          d2_6_mean_latency_ms: number | null
+          d2_6_replays: number | null
+          d3_1_answered: number | null
+          d3_1_mean_latency_ms: number | null
+          d3_1_replays: number | null
+          d3_2_answered: number | null
+          d3_2_mean_latency_ms: number | null
+          d3_2_replays: number | null
+          d4_1_answered: number | null
+          d4_1_mean_latency_ms: number | null
+          d4_1_replays: number | null
+          d4_2_answered: number | null
+          d4_2_mean_latency_ms: number | null
+          d4_2_replays: number | null
+          d5_1_answered: number | null
+          d5_1_mean_latency_ms: number | null
+          d5_1_replays: number | null
+          d5_2_answered: number | null
+          d5_2_mean_latency_ms: number | null
+          d5_2_replays: number | null
+          sr_answered: number | null
+          sr_mean_latency_ms: number | null
+        }
+        Relationships: []
+      }
       public_item_options: {
         Row: {
+          display_order: number | null
           id: string | null
           item_id: string | null
           option_key: string | null

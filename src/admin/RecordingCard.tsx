@@ -18,11 +18,24 @@
 import { useState } from 'react';
 import {
   signedRatingAudioUrl,
-  submitPrimaryRating,
+  submitAudioVerdict,
   saveRecordingNotes,
   setReliabilitySubsample,
+  type AudioVerdict,
   type RatingQueueRow,
 } from '../lib/adminData';
+
+const VERDICTS: { value: AudioVerdict; label: string; className: string }[] = [
+  { value: 'correct', label: '✓ Correct', className: 'selected-yes' },
+  { value: 'incorrect', label: '✗ Incorrect', className: 'selected-no' },
+  { value: 'unclear', label: '? Unclear', className: 'selected-unclear' },
+];
+
+const VERDICT_WORD: Record<AudioVerdict, string> = {
+  correct: 'correct',
+  incorrect: 'incorrect',
+  unclear: 'unclear',
+};
 
 function secondsLabel(durationMs: number | null): string | null {
   if (durationMs == null) return null;
@@ -72,7 +85,7 @@ export default function RecordingCard({
     }
   }
 
-  const rated = row.primaryRating != null;
+  const rated = row.verdict != null;
   const duration = secondsLabel(row.durationMs);
 
   return (
@@ -118,30 +131,30 @@ export default function RecordingCard({
           <div className="rec-rate">
             <span className="small rec-rate-label">Was the spoken answer correct?</span>
             <div className="rec-rate-buttons">
-              <button
-                type="button"
-                className={row.primaryRating === true ? 'choice selected-yes' : 'choice'}
-                aria-pressed={row.primaryRating === true}
-                disabled={busy}
-                onClick={() => void run(() => submitPrimaryRating(row.audioId, true, raterId))}
-              >
-                ✓ Correct
-              </button>
-              <button
-                type="button"
-                className={row.primaryRating === false ? 'choice selected-no' : 'choice'}
-                aria-pressed={row.primaryRating === false}
-                disabled={busy}
-                onClick={() => void run(() => submitPrimaryRating(row.audioId, false, raterId))}
-              >
-                ✗ Incorrect
-              </button>
+              {VERDICTS.map((v) => (
+                <button
+                  key={v.value}
+                  type="button"
+                  className={row.verdict === v.value ? `choice ${v.className}` : 'choice'}
+                  aria-pressed={row.verdict === v.value}
+                  disabled={busy}
+                  onClick={() => void run(() => submitAudioVerdict(row.audioId, v.value, raterId))}
+                >
+                  {v.label}
+                </button>
+              ))}
               <span className="small muted rec-rate-state">
                 {rated
-                  ? `Saved as ${row.primaryRating ? 'correct' : 'incorrect'} — click either button to change`
-                  : 'Not yet rated'}
+                  ? `Saved as ${VERDICT_WORD[row.verdict!]} — click any option to change it`
+                  : 'Not yet reviewed'}
               </span>
             </div>
+            {row.verdict === 'unclear' && (
+              <p className="small muted" style={{ margin: 0 }}>
+                Exported as <code>unclear</code> — distinct from "not yet reviewed", so it can be excluded from
+                analysis rather than mistaken for outstanding work.
+              </p>
+            )}
           </div>
 
           <div className="rec-extras">
@@ -184,8 +197,8 @@ export default function RecordingCard({
         </>
       ) : (
         <p className="small muted">
-          {rated ? `Rated ${row.primaryRating ? 'correct' : 'incorrect'}.` : 'Not yet rated.'} Your account cannot
-          rate recordings.
+          {rated ? `Reviewed as ${VERDICT_WORD[row.verdict!]}.` : 'Not yet reviewed.'} Your account cannot rate
+          recordings.
         </p>
       )}
 

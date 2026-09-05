@@ -51,13 +51,16 @@ export default function RatingQueue({ profile }: { profile: ResearcherProfile })
     return [...set].sort();
   }, [rows]);
 
-  const pendingTotal = (rows ?? []).filter((r) => r.primaryRating == null).length;
-  const reviewedTotal = (rows ?? []).filter((r) => r.primaryRating != null).length;
+  // "Reviewed" means a verdict was recorded — including 'unclear', which is a
+  // finished decision, not outstanding work.
+  const pendingTotal = (rows ?? []).filter((r) => r.verdict == null).length;
+  const reviewedTotal = (rows ?? []).filter((r) => r.verdict != null).length;
+  const unclearTotal = (rows ?? []).filter((r) => r.verdict === 'unclear').length;
 
   const visible = useMemo(
     () =>
       (rows ?? []).filter((r) => {
-        if (!showReviewed && r.primaryRating != null) return false;
+        if (!showReviewed && r.verdict != null) return false;
         if (subdomain !== 'all' && r.subdomain !== subdomain) return false;
         return true;
       }),
@@ -80,15 +83,17 @@ export default function RatingQueue({ profile }: { profile: ResearcherProfile })
         {rows && (
           <p className="small muted">
             <strong>{pendingTotal}</strong> to review · {reviewedTotal} done
+            {unclearTotal > 0 && ` (${unclearTotal} unclear)`}
           </p>
         )}
       </div>
 
       <div className="notice">
         <p className="small" style={{ margin: 0 }}>
-          Listen to each recording and mark whether the participant's spoken answer was correct. This is your own
-          reference judgment — it is saved with the recording's URL in the full CSV export and never scores the
-          participant automatically.
+          Listen to each recording and mark whether the participant's spoken answer was correct, or{' '}
+          <strong>unclear</strong> if the audio can't be judged. This is your own reference judgment — it is saved
+          with the recording's URL in the full CSV export and never scores the participant automatically. You can
+          change a verdict later; the most recent one is what's stored.
         </p>
       </div>
 

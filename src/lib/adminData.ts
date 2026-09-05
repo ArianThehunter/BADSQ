@@ -29,6 +29,10 @@ function indexBy<T, K extends string | number>(rows: T[], key: (row: T) => K): M
 
 // ---------------------------------------------------------------- rating queue
 
+/** A reviewer's judgment on one recording. NULL/absent = not yet reviewed,
+ * which is deliberately distinct from 'unclear' (reviewed, but unusable). */
+export type AudioVerdict = 'correct' | 'incorrect' | 'unclear';
+
 export type RatingQueueRow = {
   audioId: string;
   responseId: string;
@@ -38,6 +42,7 @@ export type RatingQueueRow = {
   ratingStatus: string;
   isReliabilitySubsample: boolean;
   notes: string | null;
+  verdict: AudioVerdict | null;
   primaryRating: boolean | null;
   itemCode: string;
   stimulusText: string | null;
@@ -91,7 +96,7 @@ export async function listRecordings(filter: RecordingFilter = {}): Promise<Rati
   let query = supabase
     .from('audio_recordings')
     .select(
-      'id, response_id, storage_path, mime_type, duration_ms, rating_status, is_reliability_subsample, notes, primary_rating, uploaded_at',
+      'id, response_id, storage_path, mime_type, duration_ms, rating_status, is_reliability_subsample, notes, primary_rating, primary_verdict, uploaded_at',
     )
     .order('uploaded_at', { ascending: true });
 
@@ -153,6 +158,7 @@ export async function listRecordings(filter: RecordingFilter = {}): Promise<Rati
       ratingStatus: r.rating_status,
       isReliabilitySubsample: r.is_reliability_subsample,
       notes: r.notes,
+      verdict: (r.primary_verdict as AudioVerdict | null) ?? null,
       primaryRating: r.primary_rating,
       itemCode: item?.item_code ?? '(unknown item)',
       stimulusText: item?.stimulus_text ?? null,
@@ -202,17 +208,26 @@ export async function saveRecordingNotes(audioId: string, notes: string, raterId
  * both without needing the model's output yet. `primary_rating` was always still in the
  * schema, just unused by the UI between 0010 and 0013.
  */
-export async function submitPrimaryRating(audioId: string, correct: boolean, raterId: string): Promise<void> {
+export async function submitAudioVerdict(
+  audioId: string,
+  verdict: AudioVerdict,
+  raterId: string,
+): Promise<void> {
   const { error } = await supabase
     .from('audio_recordings')
     .update({
-      primary_rating: correct,
+      primary_verdict: verdict,
+      // Two-state projection kept in sync so the long-standing export column
+      // `audio_marked_correct` keeps its meaning. 'unclear' has no boolean
+      // equivalent, so it lands as NULL there and is only distinguishable via
+      // `audio_review_verdict` (migration 0021).
+      primary_rating: verdict === 'correct' ? true : verdict === 'incorrect' ? false : null,
       primary_rater_id: raterId,
       primary_rated_at: new Date().toISOString(),
       rating_status: 'rated',
     })
     .eq('id', audioId);
-  if (error) fail('Could not save the rating', error);
+  if (error) fail('Could not save the verdict', error);
 }
 
 /**
@@ -383,7 +398,18 @@ function csvEscape(value: unknown): string {
 // A CSV gets opened well after it's downloaded, not immediately — a short-lived signed
 // URL (the app's normal 300s/3600s playback links) would already be dead by then. 30
 // days is a reasonable "download and use soon" window for a manual export action.
-const EXPORT_AUDIO_URL_EXPIRY_SECONDS = 60 * 60 * 24 * 30;
+/**
+ * Lifetime of the playable audio links written into the CSV.
+ *
+ * Supabase documents no maximum for `expiresIn`, and storage signing uses a
+ * dedicated key that survives Auth key rotation, so a long window is
+ * technically safe. The real cost is privacy, not mechanics: each link is a
+ * bearer token to a child's voice recording, it cannot be revoked without
+ * contacting Supabase support, and expiring a token does not purge the CDN
+ * copy — deleting the object is the only hard cut-off. `audio_storage_path`
+ * is exported alongside, so links can always be regenerated after expiry.
+ */
+const EXPORT_AUDIO_URL_EXPIRY_SECONDS = 60 * 60 * 24 * 90;
 
 /**
  * Fetches the entire raw dataset and triggers a CSV file download in the
@@ -407,6 +433,18 @@ export async function downloadFullExportCsv(): Promise<number> {
     }),
   );
 
+  triggerCsvDownload(rows, 'badsq-full-export');
+  return rows.length;
+}
+
+/**
+ * Serialize rows to CSV and hand them to the browser as a download.
+ *
+ * Headers come from the first row's keys — safe here because every row of a
+ * given export originates from the same view, so the key set is identical
+ * across rows.
+ */
+function triggerCsvDownload(rows: Record<string, unknown>[], filenamePrefix: string): void {
   const headers = Object.keys(rows[0]);
   const lines = [headers.join(',')];
   for (const row of rows) {
@@ -418,12 +456,37 @@ export async function downloadFullExportCsv(): Promise<number> {
   try {
     const a = document.createElement('a');
     a.href = url;
-    a.download = `badsq-full-export-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.download = `${filenamePrefix}-${new Date().toISOString().slice(0, 10)}.csv`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
   } finally {
     URL.revokeObjectURL(url);
   }
+}
+
+/**
+ * Per-participant summary export — one row per participant (participant_summary_v1).
+ *
+ * Companion to downloadFullExportCsv()'s per-response file, not a replacement:
+ * same underlying data at a coarser grain, for visualisation and
+ * cross-participant comparison. Carries no audio URLs, since a participant row
+ * summarises many recordings rather than pointing at one.
+ */
+export async function downloadParticipantSummaryCsv(): Promise<number> {
+  const rows: Record<string, unknown>[] = [];
+  for (let from = 0; ; from += EXPORT_PAGE_SIZE) {
+    const { data, error } = await supabase
+      .from('participant_summary_v1')
+      .select('*')
+      .range(from, from + EXPORT_PAGE_SIZE - 1);
+    if (error) fail('Could not load the participant summary', error);
+    if (!data || data.length === 0) break;
+    rows.push(...(data as Record<string, unknown>[]));
+    if (data.length < EXPORT_PAGE_SIZE) break;
+  }
+  if (rows.length === 0) return 0;
+
+  triggerCsvDownload(rows, 'badsq-participant-summary');
   return rows.length;
 }

@@ -58,9 +58,16 @@ export default function AdminShell({
             {roles.length > 0 ? ` · ${roles.join(' · ')}` : ' · no permissions granted'}
           </span>
         </div>
-        <button type="button" onClick={() => void signOut()}>
-          Sign out
-        </button>
+        <div className="admin-bar-actions">
+          {/* Hash route, so this leaves the admin panel for the public landing
+              page without dropping the researcher's session. */}
+          <a href="#/" className="admin-home-link">
+            ← Home
+          </a>
+          <button type="button" onClick={() => void signOut()}>
+            Sign out
+          </button>
+        </div>
       </header>
 
       <nav className="admin-nav" aria-label="Admin sections">

@@ -539,6 +539,15 @@ button.choice.selected-no {
   font-weight: 700;
 }
 
+/* Amber, not red: "unclear" is a completed decision about unusable audio, not
+   a judgment that the participant got it wrong. */
+button.choice.selected-unclear {
+  background: #fff3d6;
+  border-color: #a86b00;
+  color: #7a4d00;
+  font-weight: 700;
+}
+
 .rec-rate-state {
   margin-left: 0.25rem;
 }
@@ -615,4 +624,27 @@ tr.row-open td {
 tr.row-detail td {
   background: #fbfcfe;
   padding: 0.5rem 1rem 1rem;
+}
+
+/* Outranks `.admin-bar > div`, which sets flex-direction: column for the
+   identity block on the left and would otherwise stack these vertically. */
+.admin-bar > .admin-bar-actions {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.admin-home-link {
+  font-size: 0.875rem;
+  color: var(--color-accent);
+  text-decoration: none;
+  padding: 0.375rem 0.625rem;
+  border-radius: 0.25rem;
+  white-space: nowrap;
+}
+
+.admin-home-link:hover {
+  background: var(--color-bg);
+  text-decoration: underline;
 }

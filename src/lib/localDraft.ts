@@ -146,13 +146,28 @@ export function newEmptyDraft(sessionId: string, assignedCode: string): LocalDra
 }
 
 /** Has every item in `itemIds` got a recorded answer? Gates the Submit button. */
+/**
+ * Does this response carry a real answer, not just a timing anchor?
+ *
+ * An empty string is NOT an answer. This matters: NUMERIC_KEYPAD/LETTER_SPAN
+ * call onChange('') when the participant presses ⌫ or C, so a bare
+ * `typedValue !== null` check would treat "typed a digit, then cleared it" as
+ * answered — which let a participant advance having entered nothing at all.
+ * Single source of truth for both the per-item Next gate (TestRunner's
+ * canAdvance) and the whole-session submit gate below, so the two can never
+ * disagree about what counts as answered.
+ */
+export function hasRealAnswer(r: ResponseDraft): boolean {
+  if (r.audioBlob !== null) return true;
+  if (r.selectedOptionKey !== null && r.selectedOptionKey.trim() !== '') return true;
+  if (r.typedValue !== null && r.typedValue.trim() !== '') return true;
+  return false;
+}
+
 export function allAnswered(draft: LocalDraft, itemIds: string[]): boolean {
   return itemIds.every((id) => {
     const r = draft.responses[id];
     if (!r || !r.hasAnswered) return false;
-    // An "answer" needs actual content, not just a timing anchor: a choice
-    // format needs a selected option, NUMERIC_KEYPAD needs typed digits,
-    // AUDIO_RECORD needs a captured blob.
-    return r.selectedOptionKey !== null || r.typedValue !== null || r.audioBlob !== null;
+    return hasRealAnswer(r);
   });
 }

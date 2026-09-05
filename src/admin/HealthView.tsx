@@ -7,7 +7,12 @@
  */
 
 import { useEffect, useState } from 'react';
-import { getHealthSummary, downloadFullExportCsv, type HealthSummary } from '../lib/adminData';
+import {
+  getHealthSummary,
+  downloadFullExportCsv,
+  downloadParticipantSummaryCsv,
+  type HealthSummary,
+} from '../lib/adminData';
 
 function Stat({ label, value, warn }: { label: string; value: number; warn?: boolean }) {
   return (
@@ -46,7 +51,24 @@ export default function HealthView() {
       setExportMessage(
         count === 0
           ? 'No responses exist yet — nothing to export.'
-          : `Downloaded ${count} row(s) as CSV.`,
+          : `Downloaded ${count} response row(s) as CSV.`,
+      );
+    } catch (err) {
+      setExportMessage(err instanceof Error ? err.message : String(err));
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  async function handleSummaryExport() {
+    setExporting(true);
+    setExportMessage(null);
+    try {
+      const count = await downloadParticipantSummaryCsv();
+      setExportMessage(
+        count === 0
+          ? 'No completed sessions yet — nothing to summarise.'
+          : `Downloaded ${count} participant row(s) as CSV.`,
       );
     } catch (err) {
       setExportMessage(err instanceof Error ? err.message : String(err));
@@ -83,19 +105,40 @@ export default function HealthView() {
       )}
 
       <div className="notice" style={{ marginTop: '1.5rem' }}>
-        <h3 style={{ marginTop: 0 }}>Full raw-data export</h3>
+        <h3 style={{ marginTop: 0 }}>Exports</h3>
         <p className="muted small">
-          Every raw column collected about every participant — one row per response, including
-          background info, consent answers, latency, replay counts, and audio metadata.
-          <code>is_correct</code> is intentionally NULL for every format — all scoring happens in
-          your own offline analysis against the answer key already in the item bank. For
-          <code> AUDIO_RECORD</code> responses specifically, the export also includes a playable
-          URL to the recording and, if a researcher has rated it in the Rating Queue, that
-          reference correct/incorrect judgment (a separate column, not <code>is_correct</code>).
+          Two files over the same data at different grains. Take the response-level file for
+          cleaning and modelling, the participant-level one for charts and comparing children.
+        </p>
+
+        <h4 style={{ marginBottom: '0.25rem' }}>1. Response level — one row per answer</h4>
+        <p className="muted small">
+          Every raw column collected about every participant, including background info, consent
+          answers, latency, replay counts, and audio metadata. <code>is_correct</code> is
+          intentionally NULL for every format — all scoring happens in your own offline analysis
+          against the answer key in the item bank. For <code>AUDIO_RECORD</code> responses the
+          export also includes a playable URL (valid 90 days; <code>audio_storage_path</code> lets
+          you regenerate it afterwards) and the reviewer's verdict as{' '}
+          <code>audio_review_verdict</code> — <code>correct</code>, <code>incorrect</code> or{' '}
+          <code>unclear</code>.
         </p>
         <button type="button" className="primary" disabled={exporting} onClick={() => void handleExport()}>
-          {exporting ? 'Preparing…' : 'Download full dataset (CSV)'}
+          {exporting ? 'Preparing…' : 'Download response-level CSV'}
         </button>
+
+        <h4 style={{ marginBottom: '0.25rem', marginTop: '1.25rem' }}>
+          2. Participant level — one row per child
+        </h4>
+        <p className="muted small">
+          Demographics, consent answers and session length, then per-subdomain summaries (items
+          answered, mean latency, replays) and audio verdict tallies. Summaries per subdomain
+          rather than one column per item, so the columns stay stable when the item bank changes.
+          For per-item columns, pivot the response-level file instead.
+        </p>
+        <button type="button" disabled={exporting} onClick={() => void handleSummaryExport()}>
+          {exporting ? 'Preparing…' : 'Download participant-level CSV'}
+        </button>
+
         {exportMessage && <p className="muted small">{exportMessage}</p>}
       </div>
     </div>

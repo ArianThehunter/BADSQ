@@ -32,6 +32,9 @@ export type PublicItemOption = {
   item_id: string;
   option_key: string;
   option_text: string;
+  /** Presentation order within the item, 1-based (migration 0023). Options are
+   * shown in exactly this order, identically for every participant. */
+  display_order: number | null;
 };
 
 /**

@@ -23,6 +23,7 @@ import {
   clearDraft,
   newEmptyDraft,
   allAnswered,
+  hasRealAnswer,
   type LocalDraft,
   type ResponseDraft,
   type BackgroundInfo,
@@ -99,14 +100,6 @@ function maxAudioPlays(item: PublicItem): number {
  */
 function isDemoItem(item: PublicItem): boolean {
   return item.item_code.split('.').pop() === '0';
-}
-
-/** Fisher-Yates, in place. Used to remove answer-position bias -- see call site. */
-function shuffleInPlace<T>(arr: T[]): void {
-  for (let i = arr.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [arr[i], arr[j]] = [arr[j], arr[i]];
-  }
 }
 
 /**
@@ -286,23 +279,36 @@ export default function TestRunner() {
           for (const o of (optRows ?? []) as PublicItemOption[]) {
             (optionsMap[o.item_id] ??= []).push(o);
           }
-          // Bias guard: MCQ_TAP/BINARY_TAP/FLASH_JUDGMENT have one objectively correct
-          // option, so a fixed on-screen position for it would let a participant who
-          // tends to guess "the first option" (or "the last") score above or below
-          // their true ability depending on where that item's answer happens to sit --
-          // not a reflection of skill. Shuffling once per session (not re-shuffled
-          // on re-render) removes that positional signal while leaving scoring,
-          // which is keyed by option_key against the answer key, untouched.
+          // Fixed presentation order, identical for every participant, taken
+          // from item_options.display_order (migration 0023).
           //
-          // TRI_TAP/LIKERT_5 are deliberately EXCLUDED: those are ordered scales
-          // (e.g. "কখনো না" -> "সবসময়") where the position IS the meaning --
-          // shuffling would corrupt the instrument, not de-bias it.
-          const SHUFFLE_ELIGIBLE_FORMATS = new Set(['MCQ_TAP', 'BINARY_TAP', 'FLASH_JUDGMENT']);
-          const formatByItemId = new Map(liveItems.map((i) => [i.id, i.response_format]));
-          for (const [itemId, list] of Object.entries(optionsMap)) {
-            list.sort((a, b) => a.option_key.localeCompare(b.option_key));
-            const format = formatByItemId.get(itemId);
-            if (format && SHUFFLE_ELIGIBLE_FORMATS.has(format)) shuffleInPlace(list);
+          // Options used to be sorted by option_key and then shuffled for the
+          // choice formats. Both are gone:
+          //
+          //   * The key sort silently broke when migration 0014 replaced
+          //     A/B/C/D/E with semantic tokens — keys then sorted
+          //     alphabetically by English word, which scrambled every ordered
+          //     scale (the Likert-5 rendered সবসময় → প্রায়ই → খুব কম → কখনো না
+          //     → মাঝে মাঝে). Order now lives in its own column because
+          //     option_key can no longer carry it.
+          //
+          //   * The shuffle removed position bias, but it also put an
+          //     unrecorded random component into response latency — the
+          //     presented order was never stored, so that variance could not
+          //     be modelled or even reconstructed downstream. Latency is a
+          //     primary measure here, so that cost outweighs the benefit. The
+          //     4.1 answer key was rebalanced to A:2/B:2/C:3/D:3 in migration
+          //     0016, so a fixed order does not park the correct answer in one
+          //     position.
+          //
+          // Ties and NULLs fall back to option_key so ordering is always total
+          // and never depends on the order PostgREST happened to return rows.
+          for (const list of Object.values(optionsMap)) {
+            list.sort(
+              (a, b) =>
+                (a.display_order ?? 99) - (b.display_order ?? 99) ||
+                a.option_key.localeCompare(b.option_key),
+            );
           }
         }
 
@@ -1198,9 +1204,7 @@ function ItemScreen({
     stimulusRef.current?.play().catch(() => {});
   }
 
-  const canAdvance =
-    response.hasAnswered &&
-    (response.selectedOptionKey !== null || response.typedValue !== null || response.audioBlob !== null);
+  const canAdvance = response.hasAnswered && hasRealAnswer(response);
 
   // Demo items (item_code ending ".0" -- see isDemoItem) get an immediate
   // right/wrong reveal before advancing -- real items never do, and never
@@ -1228,11 +1232,26 @@ function ItemScreen({
     : null;
   const demoRevealPending = isDemo && demoAnswer != null && !practiceRevealed;
 
+  /**
+   * The ONLY route from one item to the next.
+   *
+   * The button's `disabled` attribute is a visual affordance, not a guarantee:
+   * a fast double-tap can land a second pointerdown in the window before React
+   * has re-rendered the freshly-mounted next item's button as disabled, which
+   * skipped an item outright. So the rule is enforced here, in logic, and the
+   * advance is made idempotent per item — `advancedRef` lives on an ItemScreen
+   * that is keyed by item id, so it resets on its own for each new item and
+   * one item can never advance twice.
+   */
+  const advancedRef = useRef(false);
+
   function handleNext() {
-    if (canAdvance && demoRevealPending) {
+    if (!canAdvance || advancedRef.current) return;
+    if (demoRevealPending) {
       setPracticeRevealed(true);
       return;
     }
+    advancedRef.current = true;
     onAdvance();
   }
 
