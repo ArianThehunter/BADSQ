@@ -1140,6 +1140,9 @@ function ItemScreen({
   /** A signed URL can resolve and the file still be missing or unplayable, so
    * the <audio> elements report their own failures here too. */
   function noteAudioFailure(label: string, path: string | null) {
+    // Release the play lock too, or a clip that fails mid-load would leave
+    // every other control permanently disabled.
+    setPlaying(null);
     const entry = `${label} — ${path ?? 'unknown path'} (file unplayable)`;
     setAudioFailures((prev) => (prev.includes(entry) ? prev : [...prev, entry]));
   }
@@ -1174,6 +1177,7 @@ function ItemScreen({
   }
 
   function handleInstructionEnded() {
+    setPlaying(null);
     setInstructionDone(true);
     // No auto-chain into the stimulus. The instruction must be HEARD, and only
     // then does the stimulus become playable as a separate, deliberate press
@@ -1185,6 +1189,7 @@ function ItemScreen({
   }
 
   function handleStimulusEnded() {
+    setPlaying(null);
     markStimulusEnded();
   }
 
@@ -1202,28 +1207,54 @@ function ItemScreen({
   /** The stimulus stays locked until the instruction has been heard through. */
   const stimulusUnlocked = !hasInstruction || instructionDone;
 
+  /**
+   * Only one clip may sound at a time, and nothing new may start while one is
+   * running. Two clips overlapping would make both unintelligible, and a
+   * recording started over playback captures the item's own audio through the
+   * speaker — which then reaches a researcher as if the child had said it.
+   */
+  const [playing, setPlaying] = useState<'instruction' | 'stimulus' | null>(null);
+  /** True while AUDIO_RECORD has the mic live -- see the audioLocked note. */
+  const [recording, setRecording] = useState(false);
+  /** Nothing may play while recording, and nothing may record while playing. */
+  const audioLocked = playing !== null || recording;
+
+  /** Every play() goes through here, so the mutual exclusion cannot be bypassed. */
+  function startClip(which: 'instruction' | 'stimulus') {
+    if (audioLocked) return false;
+    const el = which === 'instruction' ? instructionRef.current : stimulusRef.current;
+    if (!el) return false;
+    setPlaying(which);
+    el.play().catch(() => setPlaying(null));
+    return true;
+  }
+
   function playInstruction() {
-    if (instructionPlayed) return;
-    onPatch({ replayCountInstruction: (response.replayCountInstruction ?? 0) + 1 });
-    instructionRef.current?.play().catch(() => {});
+    if (instructionPlayed || audioLocked) return;
+    if (startClip('instruction')) {
+      onPatch({ replayCountInstruction: (response.replayCountInstruction ?? 0) + 1 });
+    }
   }
 
   function playStimulus() {
-    if (!stimulusUnlocked || stimulusPlayed) return;
-    onPatch({ replayCountStimulus: (response.replayCountStimulus ?? 0) + 1 });
-    stimulusRef.current?.play().catch(() => {});
+    if (!stimulusUnlocked || stimulusPlayed || audioLocked) return;
+    if (startClip('stimulus')) {
+      onPatch({ replayCountStimulus: (response.replayCountStimulus ?? 0) + 1 });
+    }
   }
 
   function replayInstruction() {
-    if (!instructionReplaysLeft) return;
-    onPatch({ replayCountInstruction: (response.replayCountInstruction ?? 0) + 1 });
-    instructionRef.current?.play().catch(() => {});
+    if (!instructionReplaysLeft || audioLocked) return;
+    if (startClip('instruction')) {
+      onPatch({ replayCountInstruction: (response.replayCountInstruction ?? 0) + 1 });
+    }
   }
 
   function replayStimulus() {
-    if (!stimulusReplaysLeft) return;
-    onPatch({ replayCountStimulus: (response.replayCountStimulus ?? 0) + 1 });
-    stimulusRef.current?.play().catch(() => {});
+    if (!stimulusReplaysLeft || audioLocked) return;
+    if (startClip('stimulus')) {
+      onPatch({ replayCountStimulus: (response.replayCountStimulus ?? 0) + 1 });
+    }
   }
 
   const canAdvance = response.hasAnswered && hasRealAnswer(response);
@@ -1282,6 +1313,7 @@ function ItemScreen({
     options,
     disabled,
     hasAnswered: response.hasAnswered,
+    audioBusy: playing !== null,
     onFirstInteraction,
   };
 
@@ -1339,6 +1371,7 @@ function ItemScreen({
           <button
             type="button"
             className="replay-button primary"
+            disabled={audioLocked}
             onPointerDown={playInstruction}
             onClick={onKeyboardActivate(playInstruction)}
           >
@@ -1353,7 +1386,7 @@ function ItemScreen({
           <button
             type="button"
             className="replay-button primary"
-            disabled={!stimulusUnlocked}
+            disabled={!stimulusUnlocked || audioLocked}
             onPointerDown={playStimulus}
             onClick={onKeyboardActivate(playStimulus)}
           >
@@ -1372,6 +1405,7 @@ function ItemScreen({
           <button
             type="button"
             className="replay-button"
+            disabled={audioLocked}
             onPointerDown={replayInstruction}
             onClick={onKeyboardActivate(replayInstruction)}
           >
@@ -1385,6 +1419,7 @@ function ItemScreen({
             <button
               type="button"
               className="replay-button"
+              disabled={audioLocked}
               onPointerDown={replayStimulus}
               onClick={onKeyboardActivate(replayStimulus)}
             >
@@ -1394,7 +1429,7 @@ function ItemScreen({
       </div>
 
       <div className={disabled ? 'response-area disabled' : 'response-area'}>
-        {renderResponseComponent(item, response, sharedProps, onPatch)}
+        {renderResponseComponent(item, response, sharedProps, onPatch, setRecording)}
       </div>
 
       {isDemo && practiceRevealed && demoAnswer != null && (
@@ -1439,6 +1474,7 @@ function renderResponseComponent(
   response: ResponseDraft,
   shared: ResponseProps,
   onPatch: (patch: Partial<ResponseDraft>) => void,
+  onRecordingChange: (recording: boolean) => void,
 ) {
   switch (item.response_format) {
     case 'MCQ_TAP':
@@ -1465,6 +1501,7 @@ function renderResponseComponent(
       return (
         <AudioRecord
           {...shared}
+          onRecordingChange={onRecordingChange}
           blob={response.audioBlob}
           mimeType={response.audioMimeType}
           durationMs={response.audioDurationMs}

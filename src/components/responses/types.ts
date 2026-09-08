@@ -51,6 +51,10 @@ export type ResponseProps = {
   disabled: boolean;
   /** True once the first interaction has been recorded (freezes timing, not the value). */
   hasAnswered: boolean;
+  /** True while an instruction or stimulus clip is actually playing. AUDIO_RECORD
+   * uses this to refuse to start recording over the top of playback — the mic
+   * would otherwise capture the item's own audio through the speaker. */
+  audioBusy: boolean;
   onFirstInteraction: (pointerType: string) => void;
 };
 
@@ -65,6 +69,10 @@ export type TypedProps = ResponseProps & {
 };
 
 export type AudioProps = ResponseProps & {
+  /** Reports recording start/stop upward, so the item screen can lock audio
+   * playback while the mic is live -- replaying a clip mid-recording would
+   * capture it through the speaker. */
+  onRecordingChange?: (recording: boolean) => void;
   blob: Blob | null;
   mimeType: string | null;
   durationMs: number | null;

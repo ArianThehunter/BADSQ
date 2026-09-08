@@ -248,7 +248,10 @@ export type ParticipantRow = {
   id: string;
   anonymizedCode: string;
   classGrade: number | null;
-  ageMonths: number | null;
+  /** Years is what the background-info flow actually collects (migration 0011).
+   * `age_months` predates it and has never been written — don't surface it. */
+  ageYears: number | null;
+  gender: string | null;
   createdAt: string;
   sessionStatus: string | null;
   responseCount: number;
@@ -260,7 +263,7 @@ export type ParticipantRow = {
 export async function listParticipants(): Promise<ParticipantRow[]> {
   const { data: participants, error } = await supabase
     .from('participants')
-    .select('id, anonymized_code, class_grade, age_months, created_at')
+    .select('id, anonymized_code, class_grade, age_years, gender, created_at')
     .order('created_at', { ascending: false });
   if (error) fail('Could not load participants', error);
   if (!participants || participants.length === 0) return [];
@@ -313,7 +316,8 @@ export async function listParticipants(): Promise<ParticipantRow[]> {
       id: p.id,
       anonymizedCode: p.anonymized_code,
       classGrade: p.class_grade,
-      ageMonths: p.age_months,
+      ageYears: p.age_years,
+      gender: p.gender,
       createdAt: p.created_at,
       sessionStatus: session?.status ?? null,
       responseCount: session ? (responseCountBySession.get(session.id) ?? 0) : 0,

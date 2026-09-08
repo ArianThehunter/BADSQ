@@ -23,7 +23,9 @@ type Phase = 'idle' | 'requesting' | 'recording' | 'recorded' | 'error';
 export default function AudioRecord({
   disabled,
   hasAnswered,
+  audioBusy,
   onFirstInteraction,
+  onRecordingChange,
   blob,
   mimeType,
   onRecorded,
@@ -57,8 +59,18 @@ export default function AudioRecord({
     };
   }, []);
 
+  // Let the item screen lock audio playback while the mic is live.
+  useEffect(() => {
+    onRecordingChange?.(phase === 'recording');
+  }, [phase, onRecordingChange]);
+
   async function startRecording(modality: string) {
     if (disabled || phase === 'requesting' || phase === 'recording') return;
+    // Refuse to record over the item's own audio: the mic would pick the clip
+    // up through the speaker and a researcher would hear it as the child's
+    // answer. Guarded here rather than only on the button so the pointer,
+    // keyboard and click paths are all covered by one check.
+    if (audioBusy) return;
     if (!hasAnswered) onFirstInteraction(modality);
 
     setError(null);
@@ -158,7 +170,7 @@ export default function AudioRecord({
         <button
           type="button"
           className="record-button"
-          disabled={disabled || phase === 'requesting'}
+          disabled={disabled || audioBusy || phase === 'requesting'}
           onPointerDown={handlePointerDown}
           onKeyDown={handleKeyDown}
           onClick={handleClick}
@@ -181,7 +193,7 @@ export default function AudioRecord({
           <button
             type="button"
             className="rerecord-button"
-            disabled={disabled}
+            disabled={disabled || audioBusy}
             onPointerDown={handlePointerDown}
             onKeyDown={handleKeyDown}
             onClick={handleClick}
@@ -189,6 +201,15 @@ export default function AudioRecord({
             ● Record again
           </button>
         </div>
+      )}
+
+      {/* Says WHY the record button is greyed out, so a locked control doesn't
+          read as broken. Not shown mid-recording, where Stop is the only
+          relevant action. */}
+      {audioBusy && phase !== 'recording' && (
+        <p className="small muted" lang="bn">
+          অডিও শেষ হলে রেকর্ড করতে পারবে
+        </p>
       )}
       {error && <p className="error small">{error}</p>}
       {mimeType && phase === 'recorded' && (

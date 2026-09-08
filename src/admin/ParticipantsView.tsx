@@ -21,6 +21,13 @@ import RecordingCard from './RecordingCard';
 
 type RecState = { status: 'loading' } | { status: 'error'; message: string } | { status: 'ready'; rows: RatingQueueRow[] };
 
+/** Stored values come from the participant's own background-info screen. */
+const GENDER_LABELS: Record<string, string> = {
+  boy: 'Boy',
+  girl: 'Girl',
+  prefer_not_to_say: 'Prefers not to say',
+};
+
 export default function ParticipantsView({ profile }: { profile: ResearcherProfile }) {
   const [rows, setRows] = useState<ParticipantRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -94,7 +101,8 @@ export default function ParticipantsView({ profile }: { profile: ResearcherProfi
               <tr>
                 <th>Code</th>
                 <th>Grade</th>
-                <th>Age (months)</th>
+                <th>Age</th>
+                <th>Gender</th>
                 <th>Session status</th>
                 <th>Responses</th>
                 <th>Recordings</th>
@@ -119,7 +127,8 @@ export default function ParticipantsView({ profile }: { profile: ResearcherProfi
                         <code>{p.anonymizedCode}</code>
                       </td>
                       <td>{p.classGrade ?? '—'}</td>
-                      <td>{p.ageMonths ?? '—'}</td>
+                      <td>{p.ageYears != null ? `${p.ageYears} yrs` : '—'}</td>
+                      <td>{GENDER_LABELS[p.gender ?? ''] ?? p.gender ?? '—'}</td>
                       <td>
                         <span className={p.sessionStatus === 'completed' ? 'pill pill-on' : 'pill'}>
                           {p.sessionStatus ?? 'unknown'}
@@ -143,7 +152,7 @@ export default function ParticipantsView({ profile }: { profile: ResearcherProfi
 
                     {open && (
                       <tr className="row-detail">
-                        <td colSpan={7}>
+                        <td colSpan={8}>
                           {!rec || rec.status === 'loading' ? (
                             <p className="muted small">Loading recordings…</p>
                           ) : rec.status === 'error' ? (
