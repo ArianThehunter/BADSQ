@@ -401,15 +401,20 @@ function csvEscape(value: unknown): string {
 /**
  * Lifetime of the playable audio links written into the CSV.
  *
- * Supabase documents no maximum for `expiresIn`, and storage signing uses a
- * dedicated key that survives Auth key rotation, so a long window is
- * technically safe. The real cost is privacy, not mechanics: each link is a
- * bearer token to a child's voice recording, it cannot be revoked without
- * contacting Supabase support, and expiring a token does not purge the CDN
- * copy — deleting the object is the only hard cut-off. `audio_storage_path`
- * is exported alongside, so links can always be regenerated after expiry.
+ * The dataset is retained indefinitely by research decision — no expiry, no
+ * automatic deletion, recordings included. A Supabase signed URL always
+ * carries SOME expiry (it is a signed token; there is no "never expires"
+ * option), so this is set to an effectively-indefinite 10-year horizon rather
+ * than a real deadline. Supabase documents no maximum for `expiresIn`, and
+ * storage signing uses a dedicated key that survives Auth key rotation.
+ *
+ * PRIVACY NOTE, unchanged by that decision: each link is a bearer token to a
+ * child's voice recording and cannot be revoked without contacting Supabase
+ * support. Anyone who obtains the CSV holds working audio links for a decade.
+ * `audio_storage_path` is exported alongside, so links can always be
+ * regenerated — treat exported files as sensitive material accordingly.
  */
-const EXPORT_AUDIO_URL_EXPIRY_SECONDS = 60 * 60 * 24 * 90;
+const EXPORT_AUDIO_URL_EXPIRY_SECONDS = 60 * 60 * 24 * 365 * 10;
 
 /**
  * Fetches the entire raw dataset and triggers a CSV file download in the

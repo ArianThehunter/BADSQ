@@ -1098,6 +1098,11 @@ function ItemScreen({
   const [instructionDone, setInstructionDone] = useState(false);
   const [instructionSignedUrl, setInstructionSignedUrl] = useState<string | null>(null);
   const [stimulusSignedUrl, setStimulusSignedUrl] = useState<string | null>(null);
+  /** Audio this item declares but that could not be loaded. Surfaced on screen
+   * rather than swallowed: a path that points at nothing leaves the item
+   * permanently un-answerable (the gate never opens), so a supervising
+   * researcher has to be able to see WHY without opening a console. */
+  const [audioFailures, setAudioFailures] = useState<string[]>([]);
 
   // The relevant "stimulus end" anchor is the stimulus audio if the item has
   // one, otherwise the instruction audio itself (see design doc section 2).
@@ -1108,19 +1113,36 @@ function ItemScreen({
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      const failures: string[] = [];
       if (item.instruction_audio_path) {
-        const url = await signedItemAudioUrl(item.instruction_audio_path).catch(() => null);
-        if (!cancelled) setInstructionSignedUrl(url);
+        try {
+          const url = await signedItemAudioUrl(item.instruction_audio_path);
+          if (!cancelled) setInstructionSignedUrl(url);
+        } catch {
+          failures.push(`instruction audio — ${item.instruction_audio_path}`);
+        }
       }
       if (item.stimulus_audio_path) {
-        const url = await signedItemAudioUrl(item.stimulus_audio_path).catch(() => null);
-        if (!cancelled) setStimulusSignedUrl(url);
+        try {
+          const url = await signedItemAudioUrl(item.stimulus_audio_path);
+          if (!cancelled) setStimulusSignedUrl(url);
+        } catch {
+          failures.push(`question audio — ${item.stimulus_audio_path}`);
+        }
       }
+      if (!cancelled) setAudioFailures(failures);
     })();
     return () => {
       cancelled = true;
     };
   }, [item.id, item.instruction_audio_path, item.stimulus_audio_path]);
+
+  /** A signed URL can resolve and the file still be missing or unplayable, so
+   * the <audio> elements report their own failures here too. */
+  function noteAudioFailure(label: string, path: string | null) {
+    const entry = `${label} — ${path ?? 'unknown path'} (file unplayable)`;
+    setAudioFailures((prev) => (prev.includes(entry) ? prev : [...prev, entry]));
+  }
 
   // ROBUSTNESS: this instrument is audio-first by design, and every published
   // item is expected to carry instruction audio (the activation guard only
@@ -1142,7 +1164,6 @@ function ItemScreen({
   }, [item.id, hasInstruction, hasStimulus]);
 
   const maxPlays = maxAudioPlays(item);
-  const notYetPlayed = disabled && (hasInstruction || hasStimulus);
 
   function markStimulusEnded() {
     const now = performance.now();
@@ -1154,42 +1175,43 @@ function ItemScreen({
 
   function handleInstructionEnded() {
     setInstructionDone(true);
-    if (!hasStimulus) {
-      markStimulusEnded();
-      return;
-    }
-    // Chains straight into the stimulus, same as before -- but now that a
-    // play here counts against the stimulus's own budget too (every actual
-    // playback counts, not just explicit replay-button presses), only chain
-    // if that budget isn't already exhausted from independent stimulus-only
-    // replays. The very first play always has budget, so items always unlock.
-    if ((response.replayCountStimulus ?? 0) < maxPlays) {
-      onPatch({ replayCountStimulus: (response.replayCountStimulus ?? 0) + 1 });
-      stimulusRef.current?.play().catch(() => {});
-    }
+    // No auto-chain into the stimulus. The instruction must be HEARD, and only
+    // then does the stimulus become playable as a separate, deliberate press
+    // -- see the two-step buttons below. This matters most where the stimulus
+    // is a one-shot: 4.2's word is on screen for 1.5s and Domain 1's span is
+    // a single play, so a stimulus that started while the child was still
+    // listening to the instruction would be wasted.
+    if (!hasStimulus) markStimulusEnded();
   }
 
   function handleStimulusEnded() {
     markStimulusEnded();
   }
 
-  // Every actual playback counts toward the cap, including the first --
-  // audio never autoplays (see notYetPlayed/playFirst below), so there is no
-  // more implicit free play to reserve budget for. Domain 3 gets maxPlays = 1
-  // via maxAudioPlays(); every other domain gets MAX_ITEM_AUDIO_PLAYS (3).
+  // Every actual playback counts toward the cap, including the first -- audio
+  // never autoplays, so there is no implicit free play to reserve budget for.
+  // Instruction and stimulus have SEPARATE budgets of the same size: Domain 1
+  // gets maxPlays = 1 for each, every other domain MAX_ITEM_AUDIO_PLAYS (3).
   const instructionReplaysLeft = hasInstruction && (response.replayCountInstruction ?? 0) < maxPlays;
   const stimulusReplaysLeft = hasStimulus && (response.replayCountStimulus ?? 0) < maxPlays;
 
-  /** The one manually-triggered first play, covering both instruction and
-   * (via handleInstructionEnded's chain) stimulus audio in one action. */
-  function playFirst() {
-    if (hasInstruction) {
-      onPatch({ replayCountInstruction: (response.replayCountInstruction ?? 0) + 1 });
-      instructionRef.current?.play().catch(() => {});
-    } else if (hasStimulus) {
-      onPatch({ replayCountStimulus: (response.replayCountStimulus ?? 0) + 1 });
-      stimulusRef.current?.play().catch(() => {});
-    }
+  // Two-step audio gate. Instruction (if any) must finish before the stimulus
+  // can be started; the stimulus is what unlocks the response controls.
+  const instructionPlayed = (response.replayCountInstruction ?? 0) > 0;
+  const stimulusPlayed = (response.replayCountStimulus ?? 0) > 0;
+  /** The stimulus stays locked until the instruction has been heard through. */
+  const stimulusUnlocked = !hasInstruction || instructionDone;
+
+  function playInstruction() {
+    if (instructionPlayed) return;
+    onPatch({ replayCountInstruction: (response.replayCountInstruction ?? 0) + 1 });
+    instructionRef.current?.play().catch(() => {});
+  }
+
+  function playStimulus() {
+    if (!stimulusUnlocked || stimulusPlayed) return;
+    onPatch({ replayCountStimulus: (response.replayCountStimulus ?? 0) + 1 });
+    stimulusRef.current?.play().catch(() => {});
   }
 
   function replayInstruction() {
@@ -1275,22 +1297,73 @@ function ItemScreen({
       )}
 
       {instructionSignedUrl && (
-        <audio ref={instructionRef} src={instructionSignedUrl} onEnded={handleInstructionEnded} />
+        <audio
+          ref={instructionRef}
+          src={instructionSignedUrl}
+          onEnded={handleInstructionEnded}
+          onError={() => noteAudioFailure('instruction audio', item.instruction_audio_path)}
+        />
       )}
       {stimulusSignedUrl && (
-        <audio ref={stimulusRef} src={stimulusSignedUrl} onEnded={handleStimulusEnded} />
+        <audio
+          ref={stimulusRef}
+          src={stimulusSignedUrl}
+          onEnded={handleStimulusEnded}
+          onError={() => noteAudioFailure('question audio', item.stimulus_audio_path)}
+        />
       )}
 
-      {notYetPlayed && (
+      {audioFailures.length > 0 && (
+        <div className="audio-failure" role="alert">
+          <p lang="bn">
+            ⚠️ এই প্রশ্নের অডিও চালু করা যাচ্ছে না। শিক্ষক বা গবেষককে জানাও।
+          </p>
+          <p className="small">
+            Audio failed to load for <code>{item.item_code}</code> — this item cannot be answered
+            until it is fixed. Researcher: check the paths below in the Item Bank Editor.
+          </p>
+          <ul className="small">
+            {audioFailures.map((f) => (
+              <li key={f}>
+                <code>{f}</code>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* Step 1: the instruction, on its own. Nothing else is offered until
+          it has been heard through. */}
+      {hasInstruction && !instructionPlayed && (
         <div className="replay-row">
           <button
             type="button"
             className="replay-button primary"
-            onPointerDown={playFirst}
-            onClick={onKeyboardActivate(playFirst)}
+            onPointerDown={playInstruction}
+            onClick={onKeyboardActivate(playInstruction)}
           >
-            🔊 অডিও শুনুন (Play audio)
+            🔊 নির্দেশনা শুনুন (Play instructions)
           </button>
+        </div>
+      )}
+
+      {/* Step 2: the stimulus, enabled only once the instruction is done. */}
+      {hasStimulus && !stimulusPlayed && (
+        <div className="replay-row">
+          <button
+            type="button"
+            className="replay-button primary"
+            disabled={!stimulusUnlocked}
+            onPointerDown={playStimulus}
+            onClick={onKeyboardActivate(playStimulus)}
+          >
+            🔊 প্রশ্নের অডিও শুনুন (Play question)
+          </button>
+          {!stimulusUnlocked && (
+            <span className="small muted" lang="bn">
+              আগে নির্দেশনা শুনে নাও
+            </span>
+          )}
         </div>
       )}
 

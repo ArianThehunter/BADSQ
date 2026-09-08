@@ -41,11 +41,24 @@ export default function FlashJudgment({
     // (oxlint flags this as react/set-state-in-effect; accepted -- this effect
     // synchronizes a timer-driven reveal state with a new item's identity,
     // which is exactly what effects are for. There's no render-time value to
-    // derive "has 2 seconds elapsed since this item appeared" from instead.)
+    // derive "has the exposure window elapsed" from instead.)
+    //
+    // GATED ON `disabled`: the exposure must not start until the audio gate
+    // is satisfied. 4.2 now carries instruction audio, and the word only shows
+    // for FLASH_EXPOSURE_MS -- if the timer ran from mount, the exposure would
+    // burn away while the child was still listening to the instruction, and
+    // they would never see the word at all.
+    if (disabled) {
+      setRevealed(false);
+      return;
+    }
     setRevealed(false);
     const timer = setTimeout(() => setRevealed(true), FLASH_EXPOSURE_MS);
     return () => clearTimeout(timer);
-  }, [item.id]);
+  }, [item.id, disabled]);
+
+  // Still gated: nothing shown yet, so the exposure hasn't been spent.
+  if (disabled) return null;
 
   if (!revealed) {
     return (
