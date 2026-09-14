@@ -1,0 +1,26 @@
+-- 0024: retire the 17 per-subdomain instruction screens.
+--
+-- Each subdomain's demo item (`*.0`) now carries instruction audio, so these
+-- screens had become a second, READ-ONLY copy of an instruction the child is
+-- about to hear anyway. That cost ~3,092 characters of Bangla across 17
+-- screens, and it fell hardest on exactly the children this instrument is
+-- meant to identify: requiring reading proficiency to access the instructions
+-- for a reading-difficulty screener is a confound, not just extra time.
+--
+-- REVERSIBLE BY DESIGN. Nothing is deleted -- `intro_text` and
+-- `intro_audio_path` are preserved in full. These rows are switched off via
+-- `active`, which TestRunner now filters on (it previously ignored the column,
+-- which is why this had to be a code change too, not just data).
+--
+-- To bring them all back:
+--     update domain_intros set active = true;
+--
+-- Or selectively, e.g. just the two Domain 1 span tasks:
+--     update domain_intros set active = true
+--     where subdomain in ('1.1 Digit Span Forward', '1.3 Letter Span Forward');
+--
+-- NOTE: the between-domain encouragement lines are NOT affected. They live in
+-- ENCOURAGEMENT_LINES in TestRunner.tsx, and the domain-intro phase still
+-- renders for them at domain boundaries -- it simply shows the encouragement
+-- alone now, with no instruction paragraph beneath it.
+update domain_intros set active = false where active;

@@ -503,3 +503,44 @@ button.record-button.recording {
   padding-left: 1.25rem;
   word-break: break-all;
 }
+
+/* Record buttons had no :disabled rule, unlike .next-button/.option-button/
+   .numeric-key. Without one the custom gradient fights the browser's default
+   disabled rendering, so a locked button reads as ambiguous rather than
+   clearly "not yet" -- which is how "Record again stays grey" looked. Same
+   visual language as .next-button:disabled. */
+.record-button:disabled,
+.rerecord-button:disabled {
+  background: #e6e0dd;
+  color: #a79f9b;
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+.record-button:disabled:active,
+.rerecord-button:disabled:active {
+  transform: none;
+}
+
+/* Says WHY Next is locked, so a greyed control reads as "answer first"
+   rather than "broken". */
+.next-hint {
+  text-align: center;
+  margin: 0;
+}
+
+/* LIKERT_5 on a narrow screen: five Bangla labels forced into one row gave
+   each button ~56px minus 40px of padding, so the text overflowed its box and
+   collided with its neighbours. Below 30rem the scale stacks vertically --
+   the order still carries the meaning, and each label gets the full width. */
+@media (max-width: 30rem) {
+  .option-grid-scale {
+    flex-direction: column;
+  }
+
+  .option-grid-scale .option-button {
+    flex: none;
+    width: 100%;
+    text-align: left;
+  }
+}

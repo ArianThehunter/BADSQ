@@ -312,9 +312,17 @@ export default function TestRunner() {
           }
         }
 
+        // `active` is the on/off switch for these screens. It used to be
+        // ignored here, which made the column inert; honouring it means an
+        // intro can be retired (and later restored) by flipping one boolean,
+        // with the text preserved in the database either way. All 17 were
+        // switched off in migration 0024 -- the instruction is now carried by
+        // each subdomain's demo-item audio, so the screen was a second,
+        // read-only copy of the same instruction.
         const { data: introRows, error: introErr } = await supabase
           .from('domain_intros')
-          .select('domain, subdomain, intro_text, intro_audio_path');
+          .select('domain, subdomain, intro_text, intro_audio_path')
+          .eq('active', true);
         if (introErr) throw introErr;
         introsRef.current = new Map(
           ((introRows ?? []) as DomainIntro[]).map((i) => [`${i.domain}|${i.subdomain ?? ''}`, i]),
@@ -331,7 +339,17 @@ export default function TestRunner() {
           return;
         }
 
-        if (existing && Object.keys(existing.responses).length > 0) {
+        // Resume on ANY saved draft, not only one with answered items.
+        //
+        // This used to require `responses` to be non-empty, so refreshing at
+        // any point before the first answer -- onboarding, age/class/gender,
+        // the consent questions, even the first demo item -- threw all of it
+        // away AND minted a second `sessions` row via beginFreshSession().
+        // That is where the pile of abandoned in_progress sessions came from.
+        // A draft only exists once start_session() has run, so its presence
+        // already means "this browser has a session in flight"; reusing it is
+        // strictly better than starting another.
+        if (existing) {
           draftRef.current = existing;
           setDraft(existing);
           setPhase('resume-prompt');
@@ -366,6 +384,34 @@ export default function TestRunner() {
     }
   }
 
+  /**
+   * Ask for the microphone at the very start, then continue regardless of the
+   * answer.
+   *
+   * The first spoken item (2.1 Elision) sits roughly twenty screens in. Asking
+   * there meant a child could work through Domain 1, hit the permission
+   * prompt, have it denied or dismissed by a hurried supervisor, and then be
+   * unable to continue at all -- the no-skip gate is hard, so that ends the
+   * session with the work already done thrown away. Asking up front moves
+   * that failure to the one moment when restarting costs nothing.
+   *
+   * Deliberately NOT blocking: a denial still lets them proceed. Domains 1,
+   * 3 and 4 need no microphone at all, so refusing here must not lock a child
+   * out of the parts they can do. The per-item recorder still surfaces its own
+   * error if permission is missing when it is actually needed.
+   */
+  async function startAndRequestMic() {
+    setPhase('background-info');
+    try {
+      const stream = await navigator.mediaDevices?.getUserMedia({ audio: true });
+      // Release it immediately -- this was a permission prompt, not a recording.
+      stream?.getTracks().forEach((t) => t.stop());
+    } catch {
+      // Denied, dismissed, or unavailable (e.g. non-HTTPS). Handled at the
+      // item that needs it.
+    }
+  }
+
   function consentComplete(c: ConsentAnswers): boolean {
     return c.q1DoctorEval !== null && c.q2ExtraPrimarySupport !== null && c.q3FamilyHistory !== null;
   }
@@ -373,6 +419,18 @@ export default function TestRunner() {
   async function handleResumeYes() {
     const d = draftRef.current;
     if (!d) return;
+    // Land them where they actually stopped. A draft with nothing filled in
+    // yet resumes at onboarding rather than dropping them straight into the
+    // age question with no context.
+    const startedBackground =
+      d.classGrade != null ||
+      d.background.ageYears != null ||
+      d.background.gender != null ||
+      d.background.homeArea != null;
+    if (!startedBackground) {
+      setPhase('onboarding');
+      return;
+    }
     if (!d.classGrade) {
       setPhase('background-info');
       return;
@@ -724,11 +782,15 @@ export default function TestRunner() {
             পড়ো, আর তুমি ছেলে না মেয়ে, সেটা বলো, যদি বলতে না চাও তাহলে "বলতে চাই না"-তে চাপ দিতে পারো। সবশেষে
             তুমি শহরে থাকো না গ্রামে থাকো, সেটা বলো। এবার শুরু করি।
           </p>
+          <p className="muted small" lang="bn">
+            কিছু প্রশ্নে তোমাকে কথা বলে উত্তর দিতে হবে, তাই মাইক্রোফোন ব্যবহারের অনুমতি চাওয়া হবে। "Allow"-তে চাপ
+            দিও।
+          </p>
           <button
             type="button"
             className="big-choice-button primary"
-            onPointerDown={() => setPhase('background-info')}
-            onClick={onKeyboardActivate(() => setPhase('background-info'))}
+            onPointerDown={() => void startAndRequestMic()}
+            onClick={onKeyboardActivate(() => void startAndRequestMic())}
           >
             শুরু করি (Start)
           </button>
@@ -1465,6 +1527,15 @@ function ItemScreen({
       >
         {demoRevealPending ? 'উত্তর দেখুন (Check)' : 'পরবর্তী (Next)'}
       </button>
+
+      {/* A greyed Next on a freshly-loaded item reads as "stuck" unless it
+          says why. Only shown once the audio gate is open, so it never
+          competes with the "listen first" instruction above. */}
+      {!canAdvance && !disabled && (
+        <p className="small muted next-hint" lang="bn">
+          উত্তর দিলে "পরবর্তী" বাটন চালু হবে
+        </p>
+      )}
     </div>
   );
 }
