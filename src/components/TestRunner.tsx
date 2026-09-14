@@ -567,6 +567,19 @@ export default function TestRunner() {
       setPhase('ready-to-submit');
       return;
     }
+
+    // Persist the target index BEFORE branching, so `currentItemIndex` always
+    // means "where the participant is now" -- including while a between-domain
+    // transition screen is showing.
+    //
+    // It used to be written only on the way into 'running', with the pending
+    // index held in `pendingIntroIndex` (plain component state, never saved).
+    // Refreshing on a transition screen therefore resumed from the LAST item
+    // they had finished and made them answer it a second time before the flow
+    // caught up. Writing it here means a refresh re-enters this same function
+    // with the same index, which simply re-shows the transition screen.
+    setAndPersistDraft({ ...draftRef.current, currentItemIndex: index });
+
     if (needsIntroBefore(index)) {
       const intro = introFor(index) ?? null;
       const encouragement = encouragementFor(index);
@@ -578,13 +591,14 @@ export default function TestRunner() {
         return;
       }
     }
-    setAndPersistDraft({ ...draftRef.current, currentItemIndex: index });
     setPhase('running');
   }
 
   function handleIntroContinue() {
     if (!draftRef.current || pendingIntroIndex === null) return;
-    setAndPersistDraft({ ...draftRef.current, currentItemIndex: pendingIntroIndex });
+    // No index to advance here any more -- enterItemOrIntro persisted it
+    // before this screen was shown. This only clears the transition state and
+    // reveals the item that `currentItemIndex` already points at.
     setPendingIntroIndex(null);
     setCurrentIntro(null);
     setCurrentEncouragement(null);

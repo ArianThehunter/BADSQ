@@ -147,12 +147,25 @@ body.badsq-test-mode .error {
   transition: transform 0.12s ease, background 0.15s ease;
 }
 
-.replay-button:hover {
+.replay-button:hover:not(:disabled) {
   background: #ded8ff;
 }
 
-.replay-button:active {
+.replay-button:active:not(:disabled) {
   transform: scale(0.96);
+}
+
+/* Audio buttons are disabled for real reasons during normal play -- the
+   stimulus is locked until the instruction finishes, and nothing may start
+   while a clip is already sounding (see TestRunner's audioLocked). Without
+   these rules a locked button looked and behaved exactly like an available
+   one: same colour, still lighting up on hover, still depressing on press,
+   while doing nothing. Same omission previously made "Record again" read as
+   broken. The :not(:disabled) guards above matter as much as the colour. */
+.replay-button:disabled {
+  background: #eceaf4;
+  color: #a8a4bd;
+  cursor: not-allowed;
 }
 
 /* The manual first-play trigger (audio never autoplays) -- more prominent
@@ -165,9 +178,18 @@ body.badsq-test-mode .error {
   padding: 0.75rem 1.5rem;
 }
 
-.replay-button.primary:hover {
+.replay-button.primary:hover:not(:disabled) {
   background: var(--tr-accent-dark);
   filter: brightness(1.08);
+}
+
+/* The prominent variant needs its own disabled rule: its background is set on
+   `.replay-button.primary`, which outranks `.replay-button:disabled`. */
+.replay-button.primary:disabled {
+  background: #d8d4ee;
+  color: #a49fc4;
+  box-shadow: none;
+  filter: none;
 }
 
 .response-area {
