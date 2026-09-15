@@ -30,6 +30,7 @@ import {
   type BackgroundInfo,
   type ConsentAnswers,
 } from '../lib/localDraft';
+import { errorMessage, asError } from '../lib/errors';
 import type { PublicItem, PublicItemOption, ResponseProps } from './responses/types';
 import { isKeyboardClick } from './responses/types';
 import McqTap from './responses/McqTap';
@@ -251,10 +252,13 @@ export default function TestRunner() {
     return () => document.body.classList.remove('badsq-test-mode');
   }, []);
 
-  const setAndPersistDraft = useCallback((next: LocalDraft) => {
+  const setAndPersistDraft = useCallback((next: LocalDraft): Promise<void> => {
     draftRef.current = next;
     setDraft(next);
-    void saveDraft(next);
+    // Returned (not just fired) so callers that MUST know the draft reached
+    // disk before the page can navigate away are able to await it. A rejected
+    // save is swallowed: an unwritable IndexedDB costs resume, not the test.
+    return saveDraft(next).catch(() => undefined);
   }, []);
 
   // ---------------------------------------------------------------- load
@@ -267,7 +271,7 @@ export default function TestRunner() {
           .select('*')
           .order('domain', { ascending: true })
           .order('display_order', { ascending: true, nullsFirst: false });
-        if (itemErr) throw itemErr;
+        if (itemErr) throw asError('Loading the item bank failed', itemErr);
         const liveItems = (itemRows ?? []) as PublicItem[];
 
         const ids = liveItems.map((i) => i.id);
@@ -277,7 +281,7 @@ export default function TestRunner() {
             .from('public_item_options')
             .select('*')
             .in('item_id', ids);
-          if (optErr) throw optErr;
+          if (optErr) throw asError('Loading the answer options failed', optErr);
           for (const o of (optRows ?? []) as PublicItemOption[]) {
             (optionsMap[o.item_id] ??= []).push(o);
           }
@@ -325,7 +329,7 @@ export default function TestRunner() {
           .from('domain_intros')
           .select('domain, subdomain, intro_text, intro_audio_path')
           .eq('active', true);
-        if (introErr) throw introErr;
+        if (introErr) throw asError('Loading the domain intros failed', introErr);
         introsRef.current = new Map(
           ((introRows ?? []) as DomainIntro[]).map((i) => [`${i.domain}|${i.subdomain ?? ''}`, i]),
         );
@@ -368,7 +372,7 @@ export default function TestRunner() {
         }
       } catch (e) {
         if (!cancelled) {
-          setError(e instanceof Error ? e.message : String(e));
+          setError(errorMessage(e));
           setPhase('loading');
         }
       }
@@ -387,10 +391,15 @@ export default function TestRunner() {
     try {
       const { sessionId, assignedCode } = await startSession();
       const fresh = newEmptyDraft(sessionId, assignedCode);
-      setAndPersistDraft(fresh);
+      // AWAITED, not fire-and-forget. start_session() has already written a
+      // `sessions` row server-side; if the participant navigates away (browser
+      // Back) before this draft lands on disk, the next visit finds no draft,
+      // starts ANOTHER session, and the first becomes an orphaned in_progress
+      // row. Awaiting closes that window.
+      await setAndPersistDraft(fresh);
       setPhase('onboarding');
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(errorMessage(e));
     }
   }
 
@@ -787,7 +796,7 @@ export default function TestRunner() {
       setPhase('complete');
     } catch (e) {
       // Deliberately do NOT clear the draft on failure -- see module doc.
-      setError(e instanceof Error ? e.message : String(e));
+      setError(errorMessage(e));
       setPhase('submit-error');
     }
   }
@@ -1325,8 +1334,30 @@ function ItemScreen({
   const hasStimulus = !!item.stimulus_audio_path;
   const disabled = response.stimulusFirstEndClientTs == null;
 
+  /**
+   * Re-sign-and-retry budget per clip, per item.
+   *
+   * A single `error` event used to latch an item as permanently broken: the
+   * banner appeared, and because the response controls only unlock on the
+   * audio's `ended` event, the item became UNANSWERABLE with no way back —
+   * in a real session that is a lost participant, not an inconvenience.
+   *
+   * Observed on iOS Safari at item 2.5.0 (the largest instruction clip in the
+   * bank, 586 KB, alongside a second clip on the same screen): the server logs
+   * show BOTH files fetched to completion, HTTP 206, full Content-Length —
+   * twice — and Safari fired `error` on both elements anyway. A retry against
+   * a freshly-signed URL is the cheap, correct response to a transient decode
+   * or media-resource failure, and the logs show it would have succeeded.
+   */
+  const MAX_AUDIO_RETRIES = 2;
+  const audioRetriesRef = useRef<{ instruction: number; stimulus: number }>({
+    instruction: 0,
+    stimulus: 0,
+  });
+
   useEffect(() => {
     let cancelled = false;
+    audioRetriesRef.current = { instruction: 0, stimulus: 0 };
     (async () => {
       const failures: string[] = [];
       if (item.instruction_audio_path) {
@@ -1334,7 +1365,7 @@ function ItemScreen({
           const url = await signedItemAudioUrl(item.instruction_audio_path);
           if (!cancelled) setInstructionSignedUrl(url);
         } catch {
-          failures.push(`instruction audio — ${item.instruction_audio_path}`);
+          failures.push(`instruction audio — ${item.instruction_audio_path} (could not be signed)`);
         }
       }
       if (item.stimulus_audio_path) {
@@ -1342,7 +1373,7 @@ function ItemScreen({
           const url = await signedItemAudioUrl(item.stimulus_audio_path);
           if (!cancelled) setStimulusSignedUrl(url);
         } catch {
-          failures.push(`question audio — ${item.stimulus_audio_path}`);
+          failures.push(`question audio — ${item.stimulus_audio_path} (could not be signed)`);
         }
       }
       if (!cancelled) setAudioFailures(failures);
@@ -1352,13 +1383,53 @@ function ItemScreen({
     };
   }, [item.id, item.instruction_audio_path, item.stimulus_audio_path]);
 
-  /** A signed URL can resolve and the file still be missing or unplayable, so
-   * the <audio> elements report their own failures here too. */
-  function noteAudioFailure(label: string, path: string | null) {
-    // Release the play lock too, or a clip that fails mid-load would leave
-    // every other control permanently disabled.
+  function audioLabel(which: 'instruction' | 'stimulus') {
+    return which === 'instruction' ? 'instruction audio' : 'question audio';
+  }
+  function audioPath(which: 'instruction' | 'stimulus') {
+    return which === 'instruction' ? item.instruction_audio_path : item.stimulus_audio_path;
+  }
+
+  /**
+   * A clip loaded successfully — drop any earlier complaint about it.
+   * Without this a transient failure stays on screen for the rest of the item
+   * even once the audio is demonstrably working.
+   */
+  function clearAudioFailure(which: 'instruction' | 'stimulus') {
+    const prefix = `${audioLabel(which)} — `;
+    setAudioFailures((prev) => {
+      const next = prev.filter((f) => !f.startsWith(prefix));
+      return next.length === prev.length ? prev : next;
+    });
+  }
+
+  /** A signed URL can resolve and the file still fail to load or decode. Retry
+   * against a fresh signature before declaring the item broken. */
+  async function handleAudioError(which: 'instruction' | 'stimulus') {
+    // Release the play lock, or a clip that fails mid-load leaves every other
+    // control disabled.
     setPlaying(null);
-    const entry = `${label} — ${path ?? 'unknown path'} (file unplayable)`;
+    const path = audioPath(which);
+    if (!path) return;
+
+    const used = audioRetriesRef.current[which];
+    if (used < MAX_AUDIO_RETRIES) {
+      audioRetriesRef.current[which] = used + 1;
+      try {
+        // A fresh signature is a genuinely different URL (the token embeds its
+        // issued-at), so React re-renders `src` and the element reloads.
+        const fresh = await signedItemAudioUrl(path);
+        if (which === 'instruction') setInstructionSignedUrl(fresh);
+        else setStimulusSignedUrl(fresh);
+        return;
+      } catch {
+        // Signing itself failed — fall through and report.
+      }
+    }
+
+    const entry = `${audioLabel(which)} — ${path} (unplayable after ${used + 1} attempt${
+      used === 0 ? '' : 's'
+    })`;
     setAudioFailures((prev) => (prev.includes(entry) ? prev : [...prev, entry]));
   }
 
@@ -1440,7 +1511,17 @@ function ItemScreen({
     const el = which === 'instruction' ? instructionRef.current : stimulusRef.current;
     if (!el) return false;
     setPlaying(which);
-    el.play().catch(() => setPlaying(null));
+    el.play().catch((err: unknown) => {
+      setPlaying(null);
+      // NotAllowedError is the browser's autoplay/gesture policy, not a broken
+      // file — reporting it as "unplayable" would send a researcher hunting a
+      // storage problem that does not exist. Every other rejection (decode
+      // failure, aborted load, unsupported source) goes through the normal
+      // retry-then-report path.
+      const name = err instanceof Error ? err.name : '';
+      if (name === 'NotAllowedError' || name === 'AbortError') return;
+      void handleAudioError(which);
+    });
     return true;
   }
 
@@ -1543,20 +1624,32 @@ function ItemScreen({
         </p>
       )}
 
+      {/* preload="none": an item can carry TWO clips, and iOS Safari was
+          eagerly buffering and decoding both the moment the screen mounted.
+          On 2.5.0 (586 KB instruction + a second clip) that ended with Safari
+          firing `error` on both elements despite the server having delivered
+          every byte of both (HTTP 206, full Content-Length, twice). Loading
+          lazily — inside the user gesture that calls play(), which is the path
+          iOS actually supports — removes the concurrent decode entirely, and
+          spares mobile data for clips the participant never replays. */}
       {instructionSignedUrl && (
         <audio
           ref={instructionRef}
           src={instructionSignedUrl}
+          preload="none"
           onEnded={handleInstructionEnded}
-          onError={() => noteAudioFailure('instruction audio', item.instruction_audio_path)}
+          onCanPlay={() => clearAudioFailure('instruction')}
+          onError={() => void handleAudioError('instruction')}
         />
       )}
       {stimulusSignedUrl && (
         <audio
           ref={stimulusRef}
           src={stimulusSignedUrl}
+          preload="none"
           onEnded={handleStimulusEnded}
-          onError={() => noteAudioFailure('question audio', item.stimulus_audio_path)}
+          onCanPlay={() => clearAudioFailure('stimulus')}
+          onError={() => void handleAudioError('stimulus')}
         />
       )}
 

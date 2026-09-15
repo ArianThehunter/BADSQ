@@ -123,15 +123,51 @@ export function isDraftStale(draft: LocalDraft, nowMs: number = Date.now()): boo
   return nowMs - last > DRAFT_STALE_AFTER_MS;
 }
 
+/**
+ * How long to wait for IndexedDB to open before giving up.
+ *
+ * `indexedDB.open()` can fire NEITHER success nor error: if another still-open
+ * connection blocks a version change it fires `blocked` and then simply waits,
+ * forever, for that other connection to close. On iOS Safari a page kept alive
+ * in the back/forward cache is exactly such a connection, so hammering the
+ * browser Back button can leave a fresh page hanging on an open() that never
+ * settles. Without this timeout the whole test screen hangs on "Loading…".
+ */
+const DB_OPEN_TIMEOUT_MS = 4000;
+
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    let settled = false;
+    const finish = (fn: () => void) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      fn();
+    };
+
+    const timer = setTimeout(
+      () => finish(() => reject(new Error('IndexedDB open timed out (another tab may hold it open)'))),
+      DB_OPEN_TIMEOUT_MS,
+    );
+
+    let req: IDBOpenDBRequest;
+    try {
+      req = indexedDB.open(DB_NAME, DB_VERSION);
+    } catch (e) {
+      // Safari Private Browsing and some locked-down configurations throw here
+      // rather than firing onerror.
+      finish(() => reject(e instanceof Error ? e : new Error('IndexedDB unavailable')));
+      return;
+    }
+
     req.onupgradeneeded = () => {
       const db = req.result;
       if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE);
     };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error ?? new Error('Could not open IndexedDB'));
+    req.onsuccess = () => finish(() => resolve(req.result));
+    req.onerror = () => finish(() => reject(req.error ?? new Error('Could not open IndexedDB')));
+    req.onblocked = () =>
+      finish(() => reject(new Error('IndexedDB blocked by another open connection')));
   });
 }
 
@@ -149,9 +185,23 @@ async function withStore<T>(mode: IDBTransactionMode, fn: (store: IDBObjectStore
   }
 }
 
+/**
+ * Read the saved draft, or null when there is none.
+ *
+ * NEVER THROWS. The draft is a convenience (same-device resume); IndexedDB
+ * being unavailable must not stop a participant from taking the test. This
+ * used to reject, and TestRunner's load path had no guard around it, so a
+ * blocked or failed open surfaced as "Could not load the test" and the
+ * participant could not start at all. Losing the ability to resume is a far
+ * smaller failure than losing the ability to begin.
+ */
 export async function loadDraft(): Promise<LocalDraft | null> {
-  const result = await withStore<LocalDraft | undefined>('readonly', (s) => s.get(SINGLETON_KEY));
-  return result ?? null;
+  try {
+    const result = await withStore<LocalDraft | undefined>('readonly', (s) => s.get(SINGLETON_KEY));
+    return result ?? null;
+  } catch {
+    return null;
+  }
 }
 
 export async function saveDraft(draft: LocalDraft): Promise<void> {
