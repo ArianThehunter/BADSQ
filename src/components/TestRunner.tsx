@@ -142,6 +142,8 @@ function emptyResponseDraft(item: PublicItem): ResponseDraft {
     replayCountInstruction: item.instruction_audio_path ? 0 : null,
     replayCountStimulus: item.stimulus_audio_path ? 0 : null,
     technicalRetryCount: 0,
+    selectionChangeCount: 0,
+    clientTimeOriginMs: typeof performance !== 'undefined' ? performance.timeOrigin : null,
     hasAnswered: false,
   };
 }
@@ -688,9 +690,28 @@ export default function TestRunner() {
   function updateCurrentResponse(patch: Partial<ResponseDraft>) {
     if (!draftRef.current || !currentItem) return;
     const prev = draftRef.current.responses[currentItem.id] ?? emptyResponseDraft(currentItem);
+
+    // Count genuine changes of mind, and only those. Counted here rather than
+    // at each response component so no future format can forget to.
+    //
+    // selectedOptionKey only: for the typed formats every keystroke rewrites
+    // typedValue ('7' -> '79' -> '792'), and counting those would report
+    // ordinary typing as indecision. Those items therefore report 0, which is
+    // honest -- they have no "selection" to change.
+    //
+    // The FIRST answer is not a change: only a replacement of an existing,
+    // different choice increments.
+    const changedChoice =
+      patch.selectedOptionKey !== undefined &&
+      prev.selectedOptionKey !== null &&
+      patch.selectedOptionKey !== prev.selectedOptionKey;
+
+    const merged: ResponseDraft = { ...prev, ...patch };
+    if (changedChoice) merged.selectionChangeCount = prev.selectionChangeCount + 1;
+
     const next: LocalDraft = {
       ...draftRef.current,
-      responses: { ...draftRef.current.responses, [currentItem.id]: { ...prev, ...patch } },
+      responses: { ...draftRef.current.responses, [currentItem.id]: merged },
     };
     setAndPersistDraft(next);
   }
@@ -760,6 +781,11 @@ export default function TestRunner() {
           replay_count_instruction: r.replayCountInstruction,
           replay_count_stimulus: r.replayCountStimulus,
           technical_retry_count: r.technicalRetryCount,
+          selection_change_count: r.selectionChangeCount ?? 0,
+          // Per-response, not per-session: a participant who resumed after a
+          // reload has responses from two different page loads, and only this
+          // makes their timestamps comparable (and the reload visible).
+          client_time_origin_ms: r.clientTimeOriginMs ?? null,
           ...(audioStoragePath
             ? {
                 audio_storage_path: audioStoragePath,
@@ -1455,6 +1481,13 @@ function ItemScreen({
   const maxPlays = maxAudioPlays(item);
 
   function markStimulusEnded() {
+    // Once the participant has committed an answer, the anchors are history and
+    // must not move. A replay that FINISHES after the response used to overwrite
+    // stimulusLastEndClientTs with a timestamp LATER than responseClientTs,
+    // leaving the stored latency (computed correctly at response time) and the
+    // raw anchors mutually contradictory -- recomputing from the anchors gave a
+    // negative latency. Observed once in the pilot: item 2.3.1, -1665 ms.
+    if (response.hasAnswered) return;
     const now = performance.now();
     onPatch({
       stimulusFirstEndClientTs: response.stimulusFirstEndClientTs ?? now,

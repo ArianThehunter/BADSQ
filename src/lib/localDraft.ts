@@ -53,6 +53,20 @@ export type ResponseDraft = {
   replayCountInstruction: number | null;
   replayCountStimulus: number | null;
   technicalRetryCount: number;
+  /**
+   * How many times the participant changed their answer before advancing.
+   * The column has existed since migration 0007 but nothing ever wrote it, so
+   * it exported as a constant 0 -- a field that looked like data and was not.
+   */
+  selectionChangeCount: number;
+  /**
+   * performance.timeOrigin for the page load that produced the timestamps in
+   * this draft. performance.now() restarts at zero on every page load, so
+   * after a resume the *ClientTs values below are NOT comparable with those
+   * recorded before the reload. Storing the origin makes them absolute again
+   * (origin + ts) and makes the reload itself visible in the data.
+   */
+  clientTimeOriginMs: number | null;
   /** Set on first interaction; timing/modality fields freeze after this. */
   hasAnswered: boolean;
 };

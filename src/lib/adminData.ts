@@ -475,15 +475,76 @@ function triggerCsvDownload(rows: Record<string, unknown>[], filenamePrefix: str
 }
 
 /**
- * Per-participant summary export — one row per participant (participant_summary_v1).
+ * Natural sort for item codes: 4.1.2 must come before 4.1.10, which a plain
+ * string compare gets wrong. Non-numeric segments (the SR criterion block)
+ * sort after numeric ones so the criterion items land at the end, as
+ * administered.
+ */
+function compareItemCodes(a: string, b: string): number {
+  const pa = a.split('.');
+  const pb = b.split('.');
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const sa = pa[i];
+    const sb = pb[i];
+    if (sa === undefined) return -1;
+    if (sb === undefined) return 1;
+    const na = Number(sa);
+    const nb = Number(sb);
+    const aNum = !Number.isNaN(na);
+    const bNum = !Number.isNaN(nb);
+    if (aNum && bNum) {
+      if (na !== nb) return na - nb;
+    } else if (aNum !== bNum) {
+      return aNum ? -1 : 1; // numeric domains before the lettered SR block
+    } else if (sa !== sb) {
+      return sa < sb ? -1 : 1;
+    }
+  }
+  return 0;
+}
+
+/** Column-name-safe form of an item code: `4.1.10` -> `q_4_1_10`. */
+function itemColumnStem(itemCode: string): string {
+  return `q_${itemCode.replace(/[^A-Za-z0-9]+/g, '_')}`;
+}
+
+const CHOICE_FORMATS = new Set([
+  'MCQ_TAP',
+  'BINARY_TAP',
+  'TRI_TAP',
+  'LIKERT_5',
+  'FLASH_JUDGMENT',
+]);
+
+/**
+ * Per-participant summary export — one row per participant, WIDE.
  *
- * Companion to downloadFullExportCsv()'s per-response file, not a replacement:
- * same underlying data at a coarser grain, for visualisation and
- * cross-participant comparison. Carries no audio URLs, since a participant row
- * summarises many recordings rather than pointing at one.
+ * Two halves joined on anonymized_code:
+ *
+ *   1. participant_summary_v1 — demographics, consent answers, session
+ *      duration, audio verdict tallies, and per-subdomain answered/mean
+ *      latency/replay aggregates.
+ *
+ *   2. a client-side pivot of full_export_v1 — for EVERY item, what the
+ *      participant actually chose, the human-readable text of that choice,
+ *      the researcher's audio verdict where there is one, and the latency.
+ *
+ * The pivot is built here rather than as more hardcoded view columns because
+ * the item bank is editable: adding or retiring an item changes the columns
+ * automatically instead of needing a migration, and the file always describes
+ * the data it actually contains.
+ *
+ * Per item, up to four columns:
+ *   <stem>_ans      the raw answer  (option key, or the typed digits/letters)
+ *   <stem>_text     the option text the participant saw   (choice formats only)
+ *   <stem>_verdict  correct/incorrect/unclear             (audio items only)
+ *   <stem>_lat_ms   response_latency_from_first_ms
+ *
+ * Latency is the from-FIRST anchor, matching what participant_summary_v1's
+ * per-subdomain means already use, so the two halves of the file agree.
  */
 export async function downloadParticipantSummaryCsv(): Promise<number> {
-  const rows: Record<string, unknown>[] = [];
+  const summaryRows: Record<string, unknown>[] = [];
   for (let from = 0; ; from += EXPORT_PAGE_SIZE) {
     const { data, error } = await supabase
       .from('participant_summary_v1')
@@ -491,11 +552,62 @@ export async function downloadParticipantSummaryCsv(): Promise<number> {
       .range(from, from + EXPORT_PAGE_SIZE - 1);
     if (error) fail('Could not load the participant summary', error);
     if (!data || data.length === 0) break;
-    rows.push(...(data as Record<string, unknown>[]));
+    summaryRows.push(...(data as Record<string, unknown>[]));
     if (data.length < EXPORT_PAGE_SIZE) break;
   }
-  if (rows.length === 0) return 0;
+  if (summaryRows.length === 0) return 0;
 
-  triggerCsvDownload(rows, 'badsq-participant-summary');
-  return rows.length;
+  const responseRows = await fetchFullExportRows();
+
+  // Item catalogue, derived from the data itself.
+  const formatByCode = new Map<string, string>();
+  for (const r of responseRows) {
+    const code = r.item_code as string | null;
+    if (code && !formatByCode.has(code)) {
+      formatByCode.set(code, (r.response_format as string) ?? '');
+    }
+  }
+  const itemCodes = [...formatByCode.keys()].sort(compareItemCodes);
+
+  // Per participant, per item.
+  const byParticipant = new Map<string, Map<string, Record<string, unknown>>>();
+  for (const r of responseRows) {
+    const code = r.anonymized_code as string | null;
+    const item = r.item_code as string | null;
+    if (!code || !item) continue;
+    let forOne = byParticipant.get(code);
+    if (!forOne) {
+      forOne = new Map();
+      byParticipant.set(code, forOne);
+    }
+    forOne.set(item, r);
+  }
+
+  const wide = summaryRows.map((summary) => {
+    const code = summary.anonymized_code as string;
+    const answers = byParticipant.get(code);
+    const out: Record<string, unknown> = { ...summary };
+
+    for (const itemCode of itemCodes) {
+      const stem = itemColumnStem(itemCode);
+      const format = formatByCode.get(itemCode) ?? '';
+      const r = answers?.get(itemCode);
+
+      // Columns are emitted for every participant whether or not they answered,
+      // so the header is identical across exports and a missing answer reads as
+      // an empty cell rather than a shifted column.
+      out[`${stem}_ans`] = r ? (r.selected_option_key ?? r.typed_value ?? null) : null;
+      if (CHOICE_FORMATS.has(format)) {
+        out[`${stem}_text`] = r ? (r.selected_option_text ?? null) : null;
+      }
+      if (format === 'AUDIO_RECORD') {
+        out[`${stem}_verdict`] = r ? (r.audio_review_verdict ?? null) : null;
+      }
+      out[`${stem}_lat_ms`] = r ? (r.response_latency_from_first_ms ?? null) : null;
+    }
+    return out;
+  });
+
+  triggerCsvDownload(wide, 'badsq-participant-summary');
+  return wide.length;
 }
