@@ -17,7 +17,7 @@ that was simply wrong**. Current status of everything recorded below:
 | § | Finding | Status |
 |---|---|---|
 | 4.1 | Consent records have no uniqueness constraint; a second row silently doubles every response row in both exports | **Closed** — partial unique index (0025). The same hazard existed on the new answer-key join and is constrained too |
-| 4.2 | `verify_security.sql` asserts the pre-0010/0012 contracts | **Still open.** Needs rewriting; it fails for correct reasons, which is the worst state for a suite |
+| 4.2 | `verify_security.sql` asserts the pre-0010/0012 contracts | **Closed** — rewritten as v7 (2026-09-16). See the note below: running it exposed two defects in the suite itself |
 | 4.3 | View-drift gate reports 72 failures and is effectively off | **Closed** — allowlist regenerated to 75 reviewed entries; zero unexplained drift |
 | 4.4 | Cohen's kappa cannot be computed; no second-rater interface | **Closed** — blind second-rating pass (0026), distinct-rater CHECK, both verdicts in the export |
 | 4.5 | Audio-deletion commitment has no implementation | **Closed** — 90-day retention implemented (0027), deletion performed from HealthView through the Storage API. Manual by design; nothing runs on a schedule |
@@ -37,6 +37,26 @@ What was genuinely missing — and what made the original observation *feel* rig
 **neither key reached the export**, so the CSV could not be scored without going back to the
 database. That is fixed in 0025, which adds `correct_answer`, `correct_option_key`,
 `correct_option_text` and `selected_option_text`.
+
+### The verification suite was itself dangerous
+
+Rewriting `scripts/verify_security.sql` required running it, and running it exposed two problems
+that had nothing to do with the stale assertions:
+
+1. **Its cleanup was destructive.** PART 1 ran
+   `delete from consent_records where assigned_code like 'BADSQ-%'`. Every real participant code
+   starts with `BADSQ-`. Running the suite against a database holding real data would have
+   silently deleted every consent record — the parent-reported criterion indicators,
+   unrecoverable, with no error. It had been in the file since the suite was written.
+2. **It never tore down.** It cleaned up at the *start* of a run and left its fixtures in place at
+   the end, so any database that had ever run it permanently contained fixture participants,
+   sessions and responses. Those rows are indistinguishable from real data in both CSV exports — a
+   fixture participant would appear in an analysis file as a 12-year-old who answered seven items.
+   `README.md` claimed the suite "tears down cleanly". It did not.
+
+Both are fixed, and the teardown now asserts that it worked. Also fixed: two assertions counted
+every row in `public_items` and expected 8, which was true only while the real item bank was
+empty — they were measuring the item bank rather than the view's `active` filter.
 
 ### Found since, and fixed
 

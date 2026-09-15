@@ -951,20 +951,42 @@ instructive lesson in the repository — *test the statement shape the client ac
 `verify-security.mjs`'s storage checks were left unchanged because they only ever tested anon-key
 denial, never a signed-in participant's own upload, so they never had this blind spot.
 
-### 10.3 🔴 The SQL suite is stale relative to migrations 0010–0024
+### 10.3 The SQL suite was stale — rewritten as v7 (2026-09-16)
 
-**[verified by reading the suite against current behaviour]** The last recorded run was after
-migration 0009. Since then the contract changed underneath at least two parts:
+`scripts/verify_security.sql` had been failing on every run for **correct** reasons: written
+before migrations `0010` and `0012`, it still asserted that responses are scored inline and that
+a human audio rating propagates into `responses.is_correct`. Both were deliberately removed. A
+suite that always fails cannot distinguish a real regression from its own backlog — the same trap
+`check_view_drift.sql` was in.
 
-- **PART 8** asserts `'rating by allowlisted rater propagates to responses'` with expected
-  `is_correct=true, scored_by=human`. Migration 0010 made `propagate_audio_rating()` a no-op, so
-  **this assertion must now fail** — and it *should*, because the behaviour was deliberately
-  removed.
-- **PART 7** covers `submit_session()`'s scoring including "the NULL-answer-key scoring hazard".
-  Migration 0012 removed all inline scoring.
+Rewritten rather than patched:
 
-A maintainer running the suite today will see failures that reflect **intentional policy changes,
-not defects**. The suite needs updating to the current contract before its output means anything.
+| Part | Change |
+|---|---|
+| 7 | Four `scored_by = 'system'` assertions replaced by one block proving **nothing** is scored for **any** format — and singling out the case where the answer **matches** the key. A matching answer coming back NULL is the actual proof no scoring path survives. |
+| 8 | Inverted: a human verdict **must not** touch the responses row. |
+| 5 | Tested `ml_export_v1`/`ml_snapshots`, dropped in 0025. Rewritten against `full_export_v1` / `participant_summary_v1`. |
+| 4 | Two assertions counted **every** row in `public_items` and expected 8 — true only while the item bank was empty. Scoped to fixtures. |
+| 12 | Drift-gate mirror carried one allowlist entry against 75 live aliases. Regenerated. |
+| 16 | **New.** 18 assertions over 0021–0027: `security_invoker`, the answer key resolving through the view, row-doubling constraints, second-rater rules, retention. |
+| 17 | **New.** Teardown. |
+
+Two defects in the suite itself, both found only by running it:
+
+1. **It was destructive.** PART 1's cleanup did
+   `delete from consent_records where assigned_code like 'BADSQ-%'`. Every real participant code
+   starts with `BADSQ-`, so running the suite against a live database would have silently deleted
+   every real consent record. Scoped to fixture identities.
+2. **It never tore down.** It cleaned up at the *start* of a run and left fixtures behind at the
+   end, so any database that had ever run it permanently held fixture participants, sessions and
+   responses — rows indistinguishable from real data in both CSV exports. PART 17 now deletes them
+   and asserts that it worked.
+
+**Verified 2026-09-16 [verified]:** PARTS 1–8, 16, 17 executed against the live database —
+**66 assertions, 66 passed, 0 failed**, teardown confirmed to leave zero fixture rows. PARTS 9–15
+were **not re-executed in that session**; they are unchanged v6 code apart from PART 12's
+regenerated allowlist. Run the file end to end to confirm all 107, and record the real number —
+do not carry one forward from an older report.
 
 ### 10.4 What remains untested, and why
 

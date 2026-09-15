@@ -1,45 +1,52 @@
 -- ============================================================================
--- BADSQ Platform — security verification suite (v6, post-migration 0008)
+-- BADSQ Platform — security verification suite (v7, post-migration 0027)
 --
 -- Run as `postgres` (Supabase SQL editor, or the MCP execute_sql tool).
 -- Re-runnable: PART 1 rebuilds all fixtures from scratch.
 --
--- v6 CHANGES vs v5 (post-0007). Migration 0008 replaces submit_session()'s
--- guard clause (four separate raise points collapsed into one WHERE + a NULL
--- check) and adds automatic random reliability-subsample assignment. PART 7's
--- existing assertions (owner-succeeds, non-owner-rejected, re-submit-rejected,
--- assigned-code-NULL-rejected, atomicity-rollback) already exercise whatever
--- submit_session() currently is via role impersonation — they were re-run
--- against the rewritten function and all five still pass unchanged, so they
--- were NOT duplicated here; PART 15 covers only what's actually new: the rate
--- function and the random-assignment distribution itself.
+-- THIS SUITE BUILDS ITS OWN DATA. It creates fixture participants, items and
+-- researchers, asserts against them, and -- since v7 -- DELETES THEM AGAIN in
+-- PART 17. It never reads real participant data and is safe to run against a
+-- live database at any time, including an empty one.
 --
--- v5 CHANGES vs v4 (post-0006). Migration 0007 fixes I1 (PHASE_2_REPORT.md
--- §6): badsq-audio had an INSERT policy for participants but no SELECT
--- policy, and Storage's upsert codepath needs one via INSERT...RETURNING.
--- PART 9's storage assertions are REWRITTEN, not just extended: every INSERT
--- there now ends in `returning id`, because a bare INSERT (no RETURNING) does
--- NOT exercise the failure I1 actually was — the old assertions all passed
--- right through the entire time I1 existed. Two new SELECT-policy assertions
--- (own-read succeeds, cross-session read fails) are added alongside. PART 14
--- covers the rest of 0007: the new policy exists, both auth_rls_initplan
--- fixes wrap auth.uid() correctly AND still enforce the same access
--- boundaries afterward, and selection_change_count exists with the right
--- shape.
+-- Before v7 it cleaned up only at the START of a run and left its fixtures
+-- behind at the end, so any database that had ever run it permanently held
+-- fixture participants and responses -- rows indistinguishable from real data
+-- in both CSV exports. PART 17 fixes that and asserts that it worked.
 --
--- v4 CHANGES vs v3 (post-0005). Migration 0006 changed one contract; everything
--- else is an ADDED assertion (PART 13), not a relaxed one:
---   * `sessions_select_own` and `sessions_select_researcher` were consolidated
---     into a single `sessions_select` policy. No assertion's EXPECTED outcome
---     changed as a result -- owners and researchers still read what they could
---     before, strangers still cannot -- only the policy name changed, which
---     PART 13 checks for directly (exactly one SELECT policy on sessions).
--- H1 (from the 0005 report) is fixed this migration: PUBLIC's EXECUTE grant on
--- propagate_audio_rating/link_researcher_on_signup is finally revoked, closing
--- the gap the 0005 revoke (targeted at anon/authenticated only) missed.
--- save_item_version() is new: an atomic RPC for item editing, replacing the
--- three-separate-statement saveNewVersion() the client used through Phase 1
--- (see PHASE_1_REPORT.md deviation 5.2 / open question 9.2).
+-- ---------------------------------------------------------------------------
+-- v7 CHANGES vs v6 (post-0008). v6 had been correct when written and then
+-- silently stopped being so: migrations 0010 and 0012 deliberately removed all
+-- automatic scoring, and 0026 removed the rating-propagation behaviour for
+-- good. v6 kept asserting the OLD contracts, so five of its assertions failed
+-- on every run -- for correct reasons. A suite that always fails cannot
+-- distinguish a real regression from its own backlog, which is the same trap
+-- scripts/check_view_drift.sql was in until its allowlist was regenerated.
+--
+-- Five assertions REPLACED, not deleted -- each is now the inverse, asserting
+-- the contract that actually holds:
+--   PART 7  four format-specific "scored_by = system" assertions become ONE
+--           block proving NOTHING is scored for ANY format, including the case
+--           where the participant's answer DOES match the key. That case is
+--           the whole point: a matching answer must still come back NULL.
+--   PART 8  "a human rating propagates into responses.is_correct" becomes
+--           "a human rating must NOT touch responses at all". This is the
+--           load-bearing one -- it proves migration 0010's decision is really
+--           in force rather than merely intended.
+--
+-- PART 16 is new and covers everything built since 0008 that had no coverage:
+-- the tri-state verdicts, the export's answer key and option text, the
+-- security_invoker property that stops the export leaking across participants,
+-- the two row-doubling constraints, the second-rater rules, and the retention
+-- schedule.
+--
+-- ---------------------------------------------------------------------------
+-- v6 (post-0008): PART 15 added reliability_subsample_rate() and the random
+-- assignment distribution. v5 (post-0007): PART 9's storage assertions were
+-- rewritten to use INSERT ... RETURNING, because a bare INSERT does not
+-- exercise the failure I1 actually was -- the old assertions passed right
+-- through the entire time I1 existed. v4 (post-0006): PART 13 added H1's
+-- PUBLIC-grant revoke and save_item_version(). Full history in git.
 --
 -- METHOD NOTE. Assertions that need a caller identity use the same mechanism
 -- PostgREST and storage-api use internally:
@@ -54,6 +61,7 @@
 --   P2    participant browser session 2  (anonymous auth user)
 --   UOUT  authenticated user NOT on the researchers allowlist
 --   R1    authenticated user ON the allowlist, can_rate = can_manage_items = true
+--   R2    second allowlisted rater, for the blind second-rating rules (0026)
 --
 -- Read results with:  select * from verify.results order by id;
 -- ============================================================================
@@ -76,6 +84,7 @@ insert into verify.ids (k, v) values
   ('P2','22222222-2222-4222-8222-222222222222'),
   ('UOUT','33333333-3333-4333-8333-333333333333'),
   ('R1','44444444-4444-4444-8444-444444444444'),
+  ('R2','66666666-6666-4666-8666-666666666666'),
   ('RGONE','55555555-5555-4555-8555-555555555555'),
   ('IMCQ1','b0000000-0000-4000-8000-000000000001'),
   ('IMCQ2','b0000000-0000-4000-8000-000000000002'),
@@ -121,7 +130,15 @@ delete from audio_recordings where response_id in (
   where s.auth_uid in (select v from verify.ids where k in ('P1','P2')));
 delete from responses where session_id in (
   select id from sessions where auth_uid in (select v from verify.ids where k in ('P1','P2')));
-delete from consent_records where assigned_code like 'BADSQ-%' or assigned_code like 'VT-%';
+-- DESTRUCTIVE BUG FIXED IN v7. This previously read:
+--     delete from consent_records where assigned_code like 'BADSQ-%' ...
+-- Every REAL participant code starts with 'BADSQ-', so running the suite
+-- against a live database would silently delete every real consent record --
+-- the parent-reported criterion indicators, unrecoverable. Scoped to the
+-- fixture identities only, like every other line in this cleanup block.
+delete from consent_records where participant_id in (
+  select id from participants
+  where created_by_auth_uid in (select v from verify.ids where k in ('P1','P2')));
 update sessions set participant_id = null
   where auth_uid in (select v from verify.ids where k in ('P1','P2'));
 delete from participants where created_by_auth_uid in (select v from verify.ids where k in ('P1','P2'));
@@ -129,14 +146,17 @@ delete from sessions where auth_uid in (select v from verify.ids where k in ('P1
 delete from item_options where item_id in (select v from verify.ids where k like 'I%');
 delete from items where id in (select v from verify.ids where k like 'I%');
 delete from researchers where email like '%@badsq-verify.test';
-delete from auth.users where id in (select v from verify.ids where k in ('P1','P2','UOUT','R1','RGONE'));
+delete from auth.users where id in (select v from verify.ids where k in ('P1','P2','UOUT','R1','R2','RGONE'));
 
-insert into researchers (email, can_rate, can_manage_items) values ('rater1@badsq-verify.test', true, true);
+insert into researchers (email, can_rate, can_manage_items) values
+  ('rater1@badsq-verify.test', true, true),
+  ('rater2@badsq-verify.test', true, false);
 insert into auth.users (id, instance_id, aud, role, email, is_anonymous, created_at, updated_at) values
   (verify.uid('P1'),'00000000-0000-0000-0000-000000000000','authenticated','authenticated',null,true,now(),now()),
   (verify.uid('P2'),'00000000-0000-0000-0000-000000000000','authenticated','authenticated',null,true,now(),now()),
   (verify.uid('UOUT'),'00000000-0000-0000-0000-000000000000','authenticated','authenticated','outsider@badsq-verify.test',false,now(),now()),
-  (verify.uid('R1'),'00000000-0000-0000-0000-000000000000','authenticated','authenticated','rater1@badsq-verify.test',false,now(),now());
+  (verify.uid('R1'),'00000000-0000-0000-0000-000000000000','authenticated','authenticated','rater1@badsq-verify.test',false,now(),now()),
+  (verify.uid('R2'),'00000000-0000-0000-0000-000000000000','authenticated','authenticated','rater2@badsq-verify.test',false,now(),now());
 
 -- Item bank fixtures. Bangla stimulus_text doubles as a Unicode round-trip probe.
 -- IMCQNK / INUMNK are the NULL-answer-key hazard: scored items with no key.
@@ -389,9 +409,13 @@ declare v_cnt int; v_retired int; v_actual text; v_pass boolean := false;
 begin
   begin
     perform verify.become(verify.uid('P1'));
-    select count(*) into v_cnt from public_items;
+    -- Scoped to fixtures in v7. This counted EVERY row in public_items and
+    -- expected 8, which was true only while the real item bank was empty. It
+    -- now holds 93 active items, so the assertion measured the item bank
+    -- rather than the view's active=true filter.
+    select count(*) into v_cnt from public_items where item_code like 'VT.%';
     select count(*) into v_retired from public_items where item_code='VT.MCQ1' and version=2;
-    v_actual := v_cnt||' rows; retired v2 rows visible='||v_retired;
+    v_actual := v_cnt||' fixture rows; retired v2 rows visible='||v_retired;
     v_pass := v_cnt = 8 and v_retired = 0;
   exception when others then v_actual := SQLSTATE||': '||SQLERRM;
   end;
@@ -405,8 +429,10 @@ declare v_cnt int; v_actual text; v_pass boolean := false;
 begin
   begin
     perform verify.become(verify.uid('P1'));
-    select count(*) into v_cnt from public_item_options;
-    v_actual := v_cnt||' rows (12 belong to active items, 1 to the retired version)';
+    -- Scoped to fixtures in v7, for the same reason as above.
+    select count(*) into v_cnt from public_item_options o
+     where o.item_id in (select v from verify.ids where k like 'I%');
+    v_actual := v_cnt||' fixture rows (12 belong to active items, 1 to the retired version)';
     v_pass := v_cnt = 12;
   exception when others then v_actual := SQLSTATE||': '||SQLERRM;
   end;
@@ -444,46 +470,56 @@ end $$;
 -- ============================================================================
 -- PART 5 — export surfaces
 -- ============================================================================
+-- REWRITTEN IN v7. This part tested ml_export_v1 and ml_snapshots, both of
+-- which migration 0025 dropped as dead, superseded schema -- so every
+-- assertion here would have errored on a table that no longer exists. The
+-- same checks now run against the views that actually carry the data.
 do $$
 declare v_cnt int; v_blocked boolean := false; v_actual text;
 begin
   begin
     perform verify.become_anon();
-    select count(*) into v_cnt from ml_export_v1;
-    v_actual := 'READABLE -- '||v_cnt||' rows';
+    select count(*) into v_cnt from full_export_v1;
+    v_actual := 'READABLE -- '||v_cnt||' rows'; v_blocked := v_cnt = 0;
   exception when others then v_blocked := true; v_actual := SQLSTATE||': '||SQLERRM;
   end;
   perform verify.unbecome();
-  perform verify.assert('export','anon SELECT from ml_export_v1','blocked', v_actual, v_blocked);
+  perform verify.assert('export','anon SELECT from full_export_v1','blocked or 0 rows', v_actual, v_blocked);
 end $$;
 
 do $$
-declare v_rls boolean; v_cnt int; v_actual text; v_safe boolean := false;
+declare v_cnt int; v_blocked boolean := false; v_actual text;
 begin
-  select relrowsecurity into v_rls from pg_class c join pg_namespace n on n.oid=c.relnamespace
-    where n.nspname='public' and c.relname='ml_snapshots';
-  perform verify.assert('export','ml_snapshots has RLS enabled','RLS enabled',
-    case when v_rls then 'enabled' else 'NOT ENABLED' end, v_rls);
-  insert into ml_snapshots (anonymized_code, class_grade) values ('SNAPSHOT-CANARY', 7);
   begin
     perform verify.become_anon();
-    select count(*) into v_cnt from ml_snapshots;
-    v_actual := 'READABLE -- '||v_cnt||' rows'; v_safe := v_cnt = 0;
-  exception when others then v_safe := true; v_actual := SQLSTATE||': '||SQLERRM;
+    select count(*) into v_cnt from participant_summary_v1;
+    v_actual := 'READABLE -- '||v_cnt||' rows'; v_blocked := v_cnt = 0;
+  exception when others then v_blocked := true; v_actual := SQLSTATE||': '||SQLERRM;
   end;
   perform verify.unbecome();
-  perform verify.assert('export','anon SELECT from ml_snapshots','blocked or 0 rows', v_actual, v_safe);
-  delete from ml_snapshots;
+  perform verify.assert('export','anon SELECT from participant_summary_v1','blocked or 0 rows', v_actual, v_blocked);
 end $$;
 
 do $$
 declare v_cols text; v_pass boolean;
 begin
   select coalesce(string_agg(column_name,', ' order by ordinal_position),'(none)') into v_cols
-  from information_schema.columns where table_schema='public' and table_name='ml_export_v1' and column_name like '%latenc%';
+  from information_schema.columns where table_schema='public' and table_name='full_export_v1' and column_name like '%latenc%';
   v_pass := v_cols like '%from_first%' and v_cols like '%from_last%';
-  perform verify.assert('export','ml_export_v1 exposes BOTH latency anchors',
+  perform verify.assert('export','full_export_v1 exposes BOTH latency anchors',
     'from_first and from_last', v_cols, v_pass);
+end $$;
+
+-- The anchors are only interpretable with the page-load origin beside them:
+-- performance.now() restarts at zero on every reload (migration 0025).
+do $$
+declare v_has boolean;
+begin
+  select exists (select 1 from information_schema.columns
+                 where table_name='full_export_v1' and column_name='client_time_origin_ms') into v_has;
+  perform verify.assert('export','full_export_v1 carries the page-load origin the anchors are relative to',
+    'client_time_origin_ms present',
+    case when v_has then 'present' else 'MISSING -- timestamps are uninterpretable across a reload' end, v_has);
 end $$;
 
 
@@ -526,7 +562,8 @@ begin
     jsonb_build_object('item_id',verify.uid('IMCQ1')::text,'selected_option_key','A','input_modality','touch',
       'viewport_width',390,'viewport_height',844,'stimulus_first_end_client_ts',1000.5,
       'stimulus_last_end_client_ts',4200.25,'response_latency_from_first_ms',3500.75,
-      'response_latency_from_last_ms',301.0,'replay_count_stimulus',1),
+      'response_latency_from_last_ms',301.0,'replay_count_stimulus',1,
+      'client_time_origin_ms',1789500000000.0,'selection_change_count',2),
     jsonb_build_object('item_id',verify.uid('IMCQ2')::text,'selected_option_key','C','input_modality','touch'),
     jsonb_build_object('item_id',verify.uid('INUM1')::text,'typed_value','42','input_modality','touch'),
     jsonb_build_object('item_id',verify.uid('INUM2')::text,'typed_value','9','input_modality','touch'),
@@ -560,42 +597,80 @@ begin
     'participants.anonymized_code = '||coalesce(v_code,'NULL'), v_pass);
 end $$;
 
+-- THE CENTRAL CONTRACT SINCE MIGRATION 0012: nothing is scored, for any
+-- format, ever. is_correct and scored_by are written NULL unconditionally.
+--
+-- v6 asserted the opposite here -- four assertions expecting scored_by =
+-- 'system' -- and they had been failing for correct reasons ever since 0012.
+-- The replacement is deliberately stronger than a flipped expectation: it
+-- checks EVERY response the submit produced, and it singles out VT.MCQ1, where
+-- the participant chose 'A' and 'A' IS the flagged-correct option. A matching
+-- answer coming back NULL is the actual proof that no scoring path survives;
+-- an item with no key coming back NULL proves much less, because it would also
+-- be NULL under the old behaviour.
 do $$
-declare v jsonb;
+declare v jsonb; v_total int; v_scored int;
 begin
   select jsonb_object_agg(i.item_code, jsonb_build_object('is_correct',r.is_correct,'scored_by',r.scored_by))
   into v from responses r join items i on i.id=r.item_id where r.session_id = verify.sid('S1');
 
-  perform verify.assert('submit','MCQ_TAP correct (VT.MCQ1, chose A = correct)','is_correct=true, scored_by=system',
+  select count(*), count(*) filter (where r.is_correct is not null or r.scored_by is not null)
+  into v_total, v_scored
+  from responses r where r.session_id = verify.sid('S1');
+
+  perform verify.assert('submit','NO SCORING: every response of every format comes back unscored',
+    'all '||v_total||' responses have is_correct=NULL and scored_by=NULL',
+    v_scored||' of '||v_total||' response(s) carry a score', v_scored = 0 and v_total > 0);
+
+  perform verify.assert('submit','NO SCORING: a CORRECT MCQ answer is still left unscored (VT.MCQ1, chose A = the correct option)',
+    'is_correct=NULL, scored_by=NULL -- matching the key must not score',
     'is_correct='||coalesce((v->'VT.MCQ1'->>'is_correct'),'NULL')||', scored_by='||coalesce((v->'VT.MCQ1'->>'scored_by'),'NULL'),
-    (v->'VT.MCQ1'->>'is_correct')='true' and (v->'VT.MCQ1'->>'scored_by')='system');
+    (v->'VT.MCQ1'->>'is_correct') is null and (v->'VT.MCQ1'->>'scored_by') is null);
 
-  perform verify.assert('submit','MCQ_TAP wrong (VT.MCQ2, chose C; A correct)','is_correct=false, scored_by=system',
+  perform verify.assert('submit','NO SCORING: a WRONG MCQ answer is left unscored (VT.MCQ2, chose C; A correct)',
+    'is_correct=NULL, scored_by=NULL -- and specifically NOT false',
     'is_correct='||coalesce((v->'VT.MCQ2'->>'is_correct'),'NULL')||', scored_by='||coalesce((v->'VT.MCQ2'->>'scored_by'),'NULL'),
-    (v->'VT.MCQ2'->>'is_correct')='false' and (v->'VT.MCQ2'->>'scored_by')='system');
+    (v->'VT.MCQ2'->>'is_correct') is null and (v->'VT.MCQ2'->>'scored_by') is null);
 
-  perform verify.assert('submit','NUMERIC_KEYPAD correct (VT.NUM1, typed 42)','is_correct=true, scored_by=system',
+  perform verify.assert('submit','NO SCORING: a CORRECT typed answer is left unscored (VT.NUM1, typed 42 = the key)',
+    'is_correct=NULL, scored_by=NULL',
     'is_correct='||coalesce((v->'VT.NUM1'->>'is_correct'),'NULL')||', scored_by='||coalesce((v->'VT.NUM1'->>'scored_by'),'NULL'),
-    (v->'VT.NUM1'->>'is_correct')='true' and (v->'VT.NUM1'->>'scored_by')='system');
+    (v->'VT.NUM1'->>'is_correct') is null and (v->'VT.NUM1'->>'scored_by') is null);
 
-  perform verify.assert('submit','NUMERIC_KEYPAD wrong (VT.NUM2, typed 9, key 5)','is_correct=false, scored_by=system',
-    'is_correct='||coalesce((v->'VT.NUM2'->>'is_correct'),'NULL')||', scored_by='||coalesce((v->'VT.NUM2'->>'scored_by'),'NULL'),
-    (v->'VT.NUM2'->>'is_correct')='false' and (v->'VT.NUM2'->>'scored_by')='system');
-
-  perform verify.assert('submit','AUDIO_RECORD human_rated left unscored (VT.AUD1)','is_correct=NULL, scored_by=NULL',
+  perform verify.assert('submit','AUDIO_RECORD left unscored at submit (VT.AUD1) -- a human rates it later, on the recording',
+    'is_correct=NULL, scored_by=NULL',
     'is_correct='||coalesce((v->'VT.AUD1'->>'is_correct'),'NULL')||', scored_by='||coalesce((v->'VT.AUD1'->>'scored_by'),'NULL'),
     (v->'VT.AUD1'->>'is_correct') is null and (v->'VT.AUD1'->>'scored_by') is null);
 
-  -- THE HAZARD: before 0005 these marked every student WRONG.
-  perform verify.assert('submit','SCORING HAZARD: scored MCQ with NO correct option flagged (VT.MCQNK)',
-    'is_correct=NULL (not false) -- must not mark the student wrong',
-    'is_correct='||coalesce((v->'VT.MCQNK'->>'is_correct'),'NULL')||', scored_by='||coalesce((v->'VT.MCQNK'->>'scored_by'),'NULL'),
-    (v->'VT.MCQNK'->>'is_correct') is null and (v->'VT.MCQNK'->>'scored_by') is null);
+  -- Retained from v6. These two items have NO answer key at all, and before
+  -- migration 0005 they marked every student WRONG. They pass trivially now
+  -- that nothing is scored, but the fixtures stay: if inline scoring is ever
+  -- reintroduced, this is the hazard it must not reintroduce with it.
+  perform verify.assert('submit','LEGACY HAZARD still absent: scored MCQ with NO correct option flagged (VT.MCQNK)',
+    'is_correct=NULL (not false) -- must never mark the student wrong',
+    'is_correct='||coalesce((v->'VT.MCQNK'->>'is_correct'),'NULL'),
+    (v->'VT.MCQNK'->>'is_correct') is null);
 
-  perform verify.assert('submit','SCORING HAZARD: scored NUMERIC_KEYPAD with NULL correct_answer (VT.NUMNK)',
-    'is_correct=NULL (not false) -- must not mark the student wrong',
-    'is_correct='||coalesce((v->'VT.NUMNK'->>'is_correct'),'NULL')||', scored_by='||coalesce((v->'VT.NUMNK'->>'scored_by'),'NULL'),
-    (v->'VT.NUMNK'->>'is_correct') is null and (v->'VT.NUMNK'->>'scored_by') is null);
+  perform verify.assert('submit','LEGACY HAZARD still absent: scored NUMERIC_KEYPAD with NULL correct_answer (VT.NUMNK)',
+    'is_correct=NULL (not false) -- must never mark the student wrong',
+    'is_correct='||coalesce((v->'VT.NUMNK'->>'is_correct'),'NULL'),
+    (v->'VT.NUMNK'->>'is_correct') is null);
+end $$;
+
+-- Added in v7. selection_change_count existed from migration 0007 and was
+-- never written by submit_session(), so it exported as a constant 0 on every
+-- response ever collected -- a column that looked like data and was not.
+-- client_time_origin_ms is new in 0025. Both are dropped silently if the
+-- function stops passing them through, which is exactly what happened before.
+do $$
+declare v_origin double precision; v_chg int;
+begin
+  select client_time_origin_ms, selection_change_count into v_origin, v_chg
+  from responses where session_id = verify.sid('S1') and item_id = verify.uid('IMCQ1');
+  perform verify.assert('submit','submit_session() persists client_time_origin_ms and selection_change_count (0025)',
+    'origin=1789500000000, changes=2',
+    'origin='||coalesce(v_origin::text,'NULL')||', changes='||coalesce(v_chg::text,'NULL'),
+    v_origin = 1789500000000.0 and v_chg = 2);
 end $$;
 
 do $$
@@ -684,21 +759,53 @@ end $$;
 -- ============================================================================
 -- PART 8 — audio rating propagation
 -- ============================================================================
+-- INVERTED SINCE v6, and this is the load-bearing assertion of the whole part.
+--
+-- Until migration 0010 a database trigger copied a rater's verdict into
+-- responses.is_correct/scored_by. That was deliberately neutered: the
+-- responses table holds only what the participant did, and a researcher's
+-- judgement stays on the recording, attributed to the researcher. v6 still
+-- asserted the propagation happened, so it failed on every run -- for the
+-- right reason, which is exactly why it had to be replaced rather than
+-- deleted. If the trigger is ever un-neutered, or a well-meaning change
+-- reintroduces propagation in application code, this catches it.
 do $$
-declare v_aid uuid; v_rid uuid; v_upd int; v_ic boolean; v_sb text; v_actual text;
+declare v_aid uuid; v_rid uuid; v_upd int; v_ic boolean; v_sb text; v_verdict text; v_actual text;
 begin
   select a.id, r.id into v_aid, v_rid from audio_recordings a join responses r on r.id=a.response_id
    where r.session_id = verify.sid('S1');
   perform verify.become(verify.uid('R1'));
-  with u as (update audio_recordings set primary_rating=true,
+  with u as (update audio_recordings set primary_verdict='correct', primary_rating=true,
     primary_rater_id=(select id from researchers where email='rater1@badsq-verify.test'),
     primary_rated_at=now(), rating_status='rated' where id=v_aid returning 1)
   select count(*) into v_upd from u;
   perform verify.unbecome();
   select is_correct, scored_by into v_ic, v_sb from responses where id=v_rid;
-  v_actual := 'audio rows updated='||v_upd||' | is_correct='||coalesce(v_ic::text,'NULL')||', scored_by='||coalesce(v_sb,'NULL');
-  perform verify.assert('rating_trigger','rating by allowlisted rater propagates to responses',
-    'is_correct=true, scored_by=human', v_actual, v_ic is true and v_sb='human');
+  select primary_verdict into v_verdict from audio_recordings where id=v_aid;
+
+  perform verify.assert('rating','allowlisted rater can record a verdict on the recording',
+    '1 row updated, primary_verdict=correct',
+    v_upd||' row(s), primary_verdict='||coalesce(v_verdict,'NULL'),
+    v_upd = 1 and v_verdict = 'correct');
+
+  perform verify.assert('rating','RATING MUST NOT PROPAGATE: responses row is untouched by a human verdict',
+    'is_correct=NULL, scored_by=NULL (trigger neutered in migration 0010)',
+    'is_correct='||coalesce(v_ic::text,'NULL')||', scored_by='||coalesce(v_sb,'NULL'),
+    v_ic is null and v_sb is null);
+end $$;
+
+do $$
+declare v_aid uuid; v_err text; v_pass boolean := false;
+begin
+  select a.id into v_aid from audio_recordings a join responses r on r.id=a.response_id where r.session_id = verify.sid('S1');
+  begin
+    perform verify.unbecome();
+    update audio_recordings set primary_verdict='maybe' where id=v_aid;
+    v_err := 'ACCEPTED (unexpected)';
+  exception when others then v_pass := true; v_err := SQLSTATE||': '||SQLERRM;
+  end;
+  perform verify.assert('rating','primary_verdict is constrained to the three real verdicts (0021)',
+    'a fourth value is rejected', v_err, v_pass);
 end $$;
 
 do $$
@@ -1042,8 +1149,86 @@ language sql stable as $fn$
     join pg_attribute ba on ba.attrelid = bt.oid and ba.attnum = d.refobjsubid
     where vn.nspname = 'public' and v.relkind = 'v'
   ),
+  -- Mirrors scripts/check_view_drift.sql's allowlist. Regenerated in v7: it
+  -- held ONE entry against 75 live legitimate aliases, so this assertion
+  -- reported 74 false DRIFT rows on every run and the gate proved nothing.
   allowlist(view_name, out_col) as (
-    values ('ml_export_v1','response_id')
+    values
+      ('full_export_v1','selected_option_text'),
+      ('full_export_v1','correct_option_key'),
+      ('full_export_v1','correct_option_text'),
+      ('full_export_v1','audio_storage_path'),
+      ('full_export_v1','audio_mime_type'),
+      ('full_export_v1','audio_duration_ms'),
+      ('full_export_v1','audio_notes'),
+      ('full_export_v1','audio_marked_correct'),
+      ('full_export_v1','audio_review_verdict'),
+      ('full_export_v1','session_started_at'),
+      ('full_export_v1','session_ended_at'),
+      ('participant_summary_v1','session_started_at'),
+      ('participant_summary_v1','session_ended_at'),
+      ('participant_summary_v1','session_minutes'),
+      ('participant_summary_v1','responses_total'),
+      ('participant_summary_v1','audio_total'),
+      ('participant_summary_v1','audio_correct'),
+      ('participant_summary_v1','audio_incorrect'),
+      ('participant_summary_v1','audio_unclear'),
+      ('participant_summary_v1','audio_unreviewed'),
+      ('participant_summary_v1','mean_latency_ms_all'),
+      ('participant_summary_v1','replays_stimulus_total'),
+      ('participant_summary_v1','replays_instruction_total'),
+      ('participant_summary_v1','main_input_modality'),
+      ('participant_summary_v1','d1_1_answered'),
+      ('participant_summary_v1','d1_1_mean_latency_ms'),
+      ('participant_summary_v1','d1_1_replays'),
+      ('participant_summary_v1','d1_2_answered'),
+      ('participant_summary_v1','d1_2_mean_latency_ms'),
+      ('participant_summary_v1','d1_2_replays'),
+      ('participant_summary_v1','d1_3_answered'),
+      ('participant_summary_v1','d1_3_mean_latency_ms'),
+      ('participant_summary_v1','d1_3_replays'),
+      ('participant_summary_v1','d1_4_answered'),
+      ('participant_summary_v1','d1_4_mean_latency_ms'),
+      ('participant_summary_v1','d1_4_replays'),
+      ('participant_summary_v1','d2_1_answered'),
+      ('participant_summary_v1','d2_1_mean_latency_ms'),
+      ('participant_summary_v1','d2_1_replays'),
+      ('participant_summary_v1','d2_2_answered'),
+      ('participant_summary_v1','d2_2_mean_latency_ms'),
+      ('participant_summary_v1','d2_2_replays'),
+      ('participant_summary_v1','d2_3_answered'),
+      ('participant_summary_v1','d2_3_mean_latency_ms'),
+      ('participant_summary_v1','d2_3_replays'),
+      ('participant_summary_v1','d2_4_answered'),
+      ('participant_summary_v1','d2_4_mean_latency_ms'),
+      ('participant_summary_v1','d2_4_replays'),
+      ('participant_summary_v1','d2_5_answered'),
+      ('participant_summary_v1','d2_5_mean_latency_ms'),
+      ('participant_summary_v1','d2_5_replays'),
+      ('participant_summary_v1','d2_6_answered'),
+      ('participant_summary_v1','d2_6_mean_latency_ms'),
+      ('participant_summary_v1','d2_6_replays'),
+      ('participant_summary_v1','d3_1_answered'),
+      ('participant_summary_v1','d3_1_mean_latency_ms'),
+      ('participant_summary_v1','d3_1_replays'),
+      ('participant_summary_v1','d3_2_answered'),
+      ('participant_summary_v1','d3_2_mean_latency_ms'),
+      ('participant_summary_v1','d3_2_replays'),
+      ('participant_summary_v1','d4_1_answered'),
+      ('participant_summary_v1','d4_1_mean_latency_ms'),
+      ('participant_summary_v1','d4_1_replays'),
+      ('participant_summary_v1','d4_2_answered'),
+      ('participant_summary_v1','d4_2_mean_latency_ms'),
+      ('participant_summary_v1','d4_2_replays'),
+      ('participant_summary_v1','d5_1_answered'),
+      ('participant_summary_v1','d5_1_mean_latency_ms'),
+      ('participant_summary_v1','d5_1_replays'),
+      ('participant_summary_v1','d5_2_answered'),
+      ('participant_summary_v1','d5_2_mean_latency_ms'),
+      ('participant_summary_v1','d5_2_replays'),
+      ('participant_summary_v1','sr_answered'),
+      ('participant_summary_v1','sr_mean_latency_ms'),
+      ('public_items','practice_correct_answer')
   )
   select c.view_name, c.out_col,
          (case when al.out_col is not null then 'ALLOWLISTED' else 'DRIFT' end)::text
@@ -1076,13 +1261,16 @@ begin
     '0 DRIFT rows', v_n||': '||v_list, v_n = 0);
 end $$;
 
+-- Every alias must be DECLARED, not merely tolerated. Counted rather than
+-- string-matched: the list is 75 entries long and a diff of it is unreadable
+-- in an assertion message, but a change in its SIZE is exactly what should
+-- make someone look.
 do $$
-declare v_n int; v_list text;
+declare v_n int;
 begin
-  select count(*), coalesce(string_agg(view_name||'.'||out_col, ', '),'-')
-  into v_n, v_list from verify.view_drift() where verdict='ALLOWLISTED';
-  perform verify.assert('view_drift_gate','allowlisted intentional aliases are declared and reviewed',
-    'ml_export_v1.response_id', v_list, v_list = 'ml_export_v1.response_id');
+  select count(*) into v_n from verify.view_drift() where verdict='ALLOWLISTED';
+  perform verify.assert('view_drift_gate','every intentional view alias is declared and reviewed',
+    '75 allowlisted aliases', v_n||' allowlisted', v_n = 75);
 end $$;
 
 
@@ -1419,6 +1607,278 @@ begin
     'sane range for p=0.2, n='||v_total||' (e.g. 2-20)',
     v_true_count||' / '||v_total,
     v_true_count between 2 and 20);
+end $$;
+
+
+-- ============================================================================
+-- PART 16 — migrations 0021-0027: exports, constraints, second rating,
+--           retention. None of this had coverage before v7.
+-- ============================================================================
+
+-- ---- 16.1 the export must not run as its creator -------------------------
+-- full_export_v1 and participant_summary_v1 carry security_invoker = true.
+-- Without it a view runs with its CREATOR's permissions, and every
+-- authenticated session -- including a participant's own anonymous one --
+-- could read every participant's data through it. This is the single most
+-- consequential property in the export layer and it is one `alter view` away
+-- from being lost.
+do $$
+declare v_full text; v_summ text;
+begin
+  select coalesce((select option from unnest(reloptions) option
+                   where option like 'security_invoker=%'), 'NOT SET')
+    into v_full from pg_class where relname='full_export_v1' and relkind='v';
+  select coalesce((select option from unnest(reloptions) option
+                   where option like 'security_invoker=%'), 'NOT SET')
+    into v_summ from pg_class where relname='participant_summary_v1' and relkind='v';
+
+  perform verify.assert('export_security','full_export_v1 runs as the INVOKER, not its creator',
+    'security_invoker=true', coalesce(v_full,'NOT SET'), v_full = 'security_invoker=true');
+  perform verify.assert('export_security','participant_summary_v1 runs as the INVOKER, not its creator',
+    'security_invoker=true', coalesce(v_summ,'NOT SET'), v_summ = 'security_invoker=true');
+end $$;
+
+-- The behavioural half of the same property: a participant reading the export
+-- must get nothing, and a researcher must get the rows.
+do $$
+declare v_as_p int; v_as_r int; v_err text := '';
+begin
+  begin
+    perform verify.become(verify.uid('P1'));
+    select count(*) into v_as_p from full_export_v1;
+  exception when others then v_as_p := -1; v_err := SQLSTATE;
+  end;
+  perform verify.unbecome();
+
+  perform verify.become(verify.uid('R1'));
+  select count(*) into v_as_r from full_export_v1 where session_id = verify.sid('S1');
+  perform verify.unbecome();
+
+  perform verify.assert('export_security','a PARTICIPANT reading full_export_v1 sees nothing',
+    '0 rows (or denied)', v_as_p||' row(s) '||v_err, v_as_p <= 0);
+  perform verify.assert('export_security','a RESEARCHER reading full_export_v1 sees the session',
+    '>0 rows', v_as_r||' row(s)', v_as_r > 0);
+end $$;
+
+-- ---- 16.2 the export carries what analysis needs -------------------------
+do $$
+declare v_missing text;
+begin
+  select string_agg(c, ', ') into v_missing from unnest(array[
+    'correct_answer','correct_option_key','correct_option_text','selected_option_text',
+    'is_scored','client_time_origin_ms','selection_change_count',
+    'audio_review_verdict','audio_second_verdict'
+  ]) c
+  where not exists (select 1 from information_schema.columns
+                    where table_name='full_export_v1' and column_name=c);
+  perform verify.assert('export_shape','full_export_v1 exposes the answer key, option text and both verdicts',
+    'all present', coalesce('missing: '||v_missing,'all present'), v_missing is null);
+end $$;
+
+-- The answer key must actually RESOLVE, not merely be a column of NULLs.
+-- VT.MCQ1 has option A flagged correct and the participant chose A.
+do $$
+declare v_sel text; v_seltext text; v_key text; v_keytext text;
+begin
+  select selected_option_key, selected_option_text, correct_option_key, correct_option_text
+  into v_sel, v_seltext, v_key, v_keytext
+  from full_export_v1 where session_id = verify.sid('S1') and item_code = 'VT.MCQ1';
+
+  perform verify.assert('export_shape','the answer key resolves through the view for a choice item',
+    'correct_option_key=A with its option text',
+    'key='||coalesce(v_key,'NULL')||', text='||coalesce(v_keytext,'NULL'),
+    v_key = 'A' and v_keytext is not null);
+
+  perform verify.assert('export_shape','the option the participant SAW resolves, not just its key',
+    'selected_option_key=A with its option text',
+    'key='||coalesce(v_sel,'NULL')||', text='||coalesce(v_seltext,'NULL'),
+    v_sel = 'A' and v_seltext is not null);
+end $$;
+
+-- Adding the answer-key join must not multiply rows.
+do $$
+declare v_view int; v_base int;
+begin
+  select count(*) into v_view from full_export_v1 where session_id = verify.sid('S1');
+  select count(*) into v_base from responses where session_id = verify.sid('S1') and not is_superseded;
+  perform verify.assert('export_shape','the export does not fan out rows (answer-key and consent joins)',
+    'view row count = base response count',
+    'view='||v_view||', base='||v_base, v_view = v_base);
+end $$;
+
+-- ---- 16.3 the two silent row-doubling hazards ---------------------------
+do $$
+declare v_pid uuid; v_err text; v_pass boolean := false;
+begin
+  select participant_id into v_pid from sessions where id = verify.sid('S1');
+  delete from consent_records where participant_id = v_pid;
+  insert into consent_records (participant_id, consent_given, consent_date) values (v_pid, true, current_date);
+  begin
+    insert into consent_records (participant_id, consent_given, consent_date) values (v_pid, true, current_date);
+    v_err := 'ACCEPTED (unexpected) -- a second row would DOUBLE every response row in both exports';
+  exception when others then v_pass := true; v_err := SQLSTATE||': '||SQLERRM;
+  end;
+  delete from consent_records where participant_id = v_pid;
+  perform verify.assert('row_doubling','a participant cannot have two consent_records rows (0025)',
+    'second insert rejected', v_err, v_pass);
+end $$;
+
+do $$
+declare v_err text; v_pass boolean := false;
+begin
+  -- VT.MCQ1 already has exactly one option flagged correct.
+  begin
+    insert into item_options (item_id, option_key, option_text, is_correct)
+    values (verify.uid('IMCQ1'), 'Z', 'second correct', true);
+    v_err := 'ACCEPTED (unexpected) -- two correct options would DOUBLE every response row for this item';
+  exception when others then v_pass := true; v_err := SQLSTATE||': '||SQLERRM;
+  end;
+  delete from item_options where item_id = verify.uid('IMCQ1') and option_key = 'Z';
+  perform verify.assert('row_doubling','an item cannot have two options flagged correct (0025)',
+    'second correct option rejected', v_err, v_pass);
+end $$;
+
+-- ---- 16.4 second rating: tri-state, distinct raters, no `agreement` ------
+do $$
+declare v_aid uuid; v_r1 uuid; v_r2 uuid; v_err text; v_pass boolean := false; v_ok boolean := false;
+begin
+  select a.id into v_aid from audio_recordings a join responses r on r.id=a.response_id
+   where r.session_id = verify.sid('S1');
+  select id into v_r1 from researchers where email='rater1@badsq-verify.test';
+  select id into v_r2 from researchers where email='rater2@badsq-verify.test';
+
+  -- the primary rater may not also be the secondary rater
+  begin
+    update audio_recordings set secondary_verdict='correct', secondary_rater_id=v_r1 where id=v_aid;
+    v_err := 'ACCEPTED (unexpected) -- agreement with oneself is not agreement';
+  exception when others then v_pass := true; v_err := SQLSTATE||': '||SQLERRM;
+  end;
+  perform verify.assert('second_rating','the same researcher cannot be both raters (0026)',
+    'rejected', v_err, v_pass);
+
+  -- a different rater may
+  begin
+    update audio_recordings set secondary_verdict='incorrect', secondary_rating=false,
+           secondary_rater_id=v_r2, secondary_rated_at=now() where id=v_aid;
+    v_ok := true;
+  exception when others then v_ok := false; v_err := SQLSTATE||': '||SQLERRM;
+  end;
+  perform verify.assert('second_rating','a DIFFERENT researcher can record the second verdict',
+    'accepted', case when v_ok then 'accepted' else v_err end, v_ok);
+end $$;
+
+do $$
+declare v_p text; v_s text;
+begin
+  select audio_review_verdict, audio_second_verdict into v_p, v_s
+  from full_export_v1 where session_id = verify.sid('S1') and item_code = 'VT.AUD1';
+  perform verify.assert('second_rating','BOTH verdicts reach the export, over the same three categories',
+    'primary=correct, second=incorrect',
+    'primary='||coalesce(v_p,'NULL')||', second='||coalesce(v_s,'NULL'),
+    v_p = 'correct' and v_s = 'incorrect');
+end $$;
+
+do $$
+declare v_exists boolean;
+begin
+  select exists (select 1 from information_schema.columns
+                 where table_name='audio_recordings' and column_name='agreement') into v_exists;
+  perform verify.assert('second_rating','the misleading generated `agreement` column is gone (0026)',
+    'absent -- it read true for a pair that was merely UNRATED',
+    case when v_exists then 'still present' else 'absent' end, not v_exists);
+end $$;
+
+-- ---- 16.5 retention ------------------------------------------------------
+do $$
+declare v_sched timestamptz; v_up timestamptz; v_days numeric;
+begin
+  select a.scheduled_deletion_at, a.uploaded_at into v_sched, v_up
+  from audio_recordings a join responses r on r.id=a.response_id
+  where r.session_id = verify.sid('S1') limit 1;
+  v_days := round(extract(epoch from (v_sched - v_up))/86400);
+  perform verify.assert('retention','every new recording is scheduled for destruction 90 days after upload (0027)',
+    '~90 days', coalesce(v_days::text,'NULL')||' days', v_days between 89 and 91);
+end $$;
+
+do $$
+declare v_dropped int;
+begin
+  select count(*) into v_dropped from pg_class
+   where relname in ('ml_export_v1','ml_snapshots') and relnamespace = 'public'::regnamespace;
+  perform verify.assert('schema_hygiene','the superseded ml_export_v1 / ml_snapshots are gone (0025)',
+    '0 objects -- a second, staler export view invites analysing the wrong one',
+    v_dropped||' still present', v_dropped = 0);
+end $$;
+
+-- ---- 16.6 the answer key still never reaches a participant ---------------
+-- The whole point of public_items: a participant may read the item bank, but
+-- correct_answer is exposed ONLY for demo items, renamed so it cannot be
+-- mistaken for the real key.
+do $$
+declare v_leak int; v_cols text;
+begin
+  select string_agg(column_name, ', ') into v_cols from information_schema.columns
+   where table_name='public_items' and column_name in ('correct_answer','is_correct');
+  perform verify.assert('answer_key','public_items exposes no raw correct_answer column',
+    'absent', coalesce(v_cols,'absent'), v_cols is null);
+
+  select count(*) into v_leak from information_schema.columns
+   where table_name='public_item_options' and column_name='is_correct';
+  perform verify.assert('answer_key','public_item_options exposes no is_correct flag',
+    'absent', v_leak||' column(s)', v_leak = 0);
+end $$;
+
+
+-- ============================================================================
+-- PART 17 — TEARDOWN
+-- ============================================================================
+-- NEW IN v7, and not cosmetic. Every earlier version cleaned up at the START
+-- of a run and left its fixtures in place at the END, so a database that had
+-- ever run this suite permanently contained fixture participants, sessions,
+-- responses, audio_recordings, items (VT.*) and researchers
+-- (%@badsq-verify.test). Those rows are indistinguishable from real data in
+-- both CSV exports -- a fixture participant would appear in an analysis file
+-- as a 12-year-old who answered seven items.
+--
+-- README.md claimed the suite "tears down cleanly". It did not. It does now.
+--
+-- verify.results is deliberately NOT dropped: the RESULTS query below reads it,
+-- and it is the record of the run. Drop the schema by hand when finished:
+--     drop schema verify cascade;
+do $$
+declare v_fixture_sessions uuid[];
+begin
+  select coalesce(array_agg(id), '{}') into v_fixture_sessions
+  from sessions where auth_uid in (select v from verify.ids where k in ('P1','P2'));
+
+  delete from audio_recordings where response_id in (
+    select id from responses where session_id = any(v_fixture_sessions));
+  delete from responses where session_id = any(v_fixture_sessions);
+  delete from consent_records where participant_id in (
+    select participant_id from sessions where id = any(v_fixture_sessions) and participant_id is not null);
+  update sessions set participant_id = null where id = any(v_fixture_sessions);
+  delete from participants where created_by_auth_uid in (select v from verify.ids where k in ('P1','P2'));
+  delete from sessions where id = any(v_fixture_sessions);
+
+  delete from item_options where item_id in (select v from verify.ids where k like 'I%');
+  delete from items where id in (select v from verify.ids where k like 'I%');
+  delete from researchers where email like '%@badsq-verify.test';
+  delete from auth.users where id in (select v from verify.ids where k in ('P1','P2','UOUT','R1','R2','RGONE'));
+end $$;
+
+-- Prove the teardown actually worked, rather than trusting it.
+do $$
+declare v_left int;
+begin
+  select
+    (select count(*) from items where item_code like 'VT.%')
+  + (select count(*) from researchers where email like '%@badsq-verify.test')
+  + (select count(*) from sessions where auth_uid in (select v from verify.ids where k in ('P1','P2')))
+  + (select count(*) from participants where created_by_auth_uid in (select v from verify.ids where k in ('P1','P2')))
+  into v_left;
+  perform verify.assert('teardown','no fixture rows are left behind in the real tables',
+    '0 fixture rows -- they would otherwise appear in the CSV exports as real participants',
+    v_left||' fixture row(s) remaining', v_left = 0);
 end $$;
 
 

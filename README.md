@@ -124,14 +124,42 @@ real base column or be explicitly allowlisted; the allowlist carries 75 reviewed
 gate returns zero unexplained drift. It is what stands between a future base-column rename and a
 third silent recurrence of the defect that broke `ml_export_v1` and then `public_items`.
 
-> ⚠️ **`scripts/verify_security.sql` is STALE and currently fails for correct reasons.**
-> It was written against pre-`0010`/`0012` behaviour and still asserts that a human audio rating
-> propagates into `responses.is_correct`, and that responses are scored inline — both of which
-> were deliberately removed. Its failures are therefore expected, which means a *real* failure
-> would be indistinguishable from the backlog. Do not treat a failing run as evidence of a
-> security problem, and do not treat a passing assertion count from an older report as current.
-> The README previously claimed "84 assertions, 84 passed"; that is no longer reproducible.
-> Rewriting it against the current contracts is an open task.
+**`scripts/verify_security.sql` (v7) was rewritten on 2026-09-16** against the contracts that
+actually hold. It had been failing on every run for correct reasons — it still asserted that
+responses are scored inline and that a human audio rating propagates into `responses.is_correct`,
+both of which migrations `0012` and `0010` deliberately removed. A suite that always fails cannot
+distinguish a real regression from its own backlog.
+
+What changed, and why it is more than flipped expectations:
+
+- **PART 7** now proves that *nothing* is scored for *any* format, and singles out the case where
+  the participant's answer **matches** the key. A matching answer coming back NULL is the actual
+  proof that no scoring path survives.
+- **PART 8** asserts the inverse of what it used to: a human verdict **must not** touch the
+  responses row.
+- **PART 5** tested `ml_export_v1`/`ml_snapshots`, dropped in `0025`. Rewritten against the views
+  that carry the data.
+- **PART 12's** drift-gate mirror had one allowlist entry against 75 live aliases. Regenerated.
+- **PART 16** is new: 18 assertions over migrations 0021–0027 — the `security_invoker` property
+  that stops the export leaking across participants, the answer key and option text resolving
+  through the view, the two row-doubling constraints, the second-rater rules, retention.
+- **PART 17** is new: a **teardown**. Every earlier version cleaned up only at the *start* of a
+  run and left its fixtures behind, so any database that had ever run the suite permanently held
+  fixture participants and responses — rows indistinguishable from real data in both CSV exports.
+  This README previously claimed it "tears down cleanly". It did not. It does now, and asserts it.
+
+It also fixed a **destructive** line in PART 1: the cleanup did
+`delete from consent_records where assigned_code like 'BADSQ-%'`. Every real participant code
+starts with `BADSQ-`, so running the suite against a live database would have silently deleted
+every real consent record.
+
+**Verified state, 2026-09-16:** PARTS 1–8, 16 and 17 were executed against the live database —
+**66 assertions, 66 passed, 0 failed** — and the teardown was confirmed to leave zero fixture
+rows. PARTS 9–15 (storage, consent linkage, Unicode, hardening, migrations 0006–0008) are
+unchanged v6 code apart from PART 12's regenerated allowlist and **were not re-executed in that
+session**; run the file end to end in the SQL editor to confirm all 107. Record the result here
+when you do — and do not carry an assertion count forward from an older report, which is how the
+previous "84 assertions, 84 passed" claim outlived its truth.
 
 ## Deployment
 

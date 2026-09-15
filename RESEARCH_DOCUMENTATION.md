@@ -996,11 +996,16 @@ for a research audience:
   **three sessions by one adult tester**, not a usability pilot with children.
 - **Real microphone hardware is still not used in any automated test**, so a regression there
   would only be caught by another manual run.
-- **The security verification suite is stale.** It was written against behaviour predating
-  migrations `0010` and `0012` and still asserts that a human rating propagates into the response
-  row and that responses are scored inline — both deliberately removed. It reports failures that
-  are not defects, which is the worst state for a test suite: it cannot be trusted either way
-  until rewritten. **This is still open.**
+- ~~The security verification suite is stale.~~ **Closed (2026-09-16).** It had asserted the
+  pre-`0010`/`0012` contracts — that a human rating propagates into the response row, and that
+  responses are scored inline — so it failed on every run for correct reasons. Rewritten to assert
+  what actually holds, plus 18 new assertions over the export's access control, the answer key,
+  the second-rating rules and retention. Running it also exposed two defects **in the suite
+  itself**: its cleanup would have deleted every real consent record (it matched on the
+  `BADSQ-` prefix that every real participant code carries), and it left its own fixture
+  participants behind in the database, where they were indistinguishable from real data in both
+  CSV exports. Both fixed. 66 of its 107 assertions have been executed against the live database
+  and all passed; the remainder are unchanged and await one full run.
 - ~~The release gate reports 72 failures.~~ **Closed.** Its allowlist had one entry against 72
   live legitimate aliases, so it failed wholesale and could not distinguish a real regression from
   its own backlog. Regenerated against the schema; it now passes with zero unexplained drift.
@@ -1057,14 +1062,13 @@ Still open, and all of them research-team decisions rather than software work:
    transcribing the parent's paper form, and nothing records which source a row came from. The
    duplicate-row hazard itself is closed.
 5. **Confirm and record ethics approval** (§6.2).
-6. **Rewrite `scripts/verify_security.sql`** (§9.5). It asserts contracts the system deliberately
-   no longer honours, so it fails for correct reasons and cannot distinguish a real regression.
-7. **Run a timing and fatigue pilot** (§3.7). Session duration for real participants is still
+6. **Run a timing and fatigue pilot** (§3.7). Session duration for real participants is still
    unknown, and item order is fixed so fatigue is confounded with domain.
 
 Closed since the previous revision: the export now carries the answer key and option text; a
 blind second-rating path exists so inter-rater agreement is collectable; audio retention is
-implemented; the consent-record and answer-key row-doubling hazards are constrained; the
+implemented and audio is destroyed 90 days after upload; the security verification suite has been
+rewritten against the contracts that actually hold; the consent-record and answer-key row-doubling hazards are constrained; the
 view-drift release gate passes again; and the iOS audio path has now been exercised on real
 hardware (§9.5). Pilot data collected before the option-order fix has been deleted along with the
 rest of the pilot set.
