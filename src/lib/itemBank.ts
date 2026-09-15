@@ -155,7 +155,12 @@ export async function createItem(draft: DraftItem, active: boolean): Promise<Ite
     );
   }
   const { data: newId, error } = await supabase.rpc('save_item_version', {
-    p_old_item_id: null,
+    // NULL is the RPC's documented "there is no previous version" case -- its
+    // body branches on `if p_old_item_id is not null`. Supabase's type
+    // generator marks every argument without a SQL default as non-nullable, so
+    // it cannot express that; the cast records the mismatch rather than
+    // loosening the generated types by hand (they are regenerated wholesale).
+    p_old_item_id: null as unknown as string,
     p_item: rpcItemPayload(draft, active),
     p_options: rpcOptionsPayload(draft.options),
   });

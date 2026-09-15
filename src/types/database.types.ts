@@ -1,16 +1,3 @@
-// Generated from the live BADSQ schema (migrations 0001-0023).
-//
-// DO NOT EDIT BY HAND except for the noted fix below. Regenerate after every migration:
-//   supabase gen types typescript --project-id <ref> > src/types/database.types.ts
-// (or, without the CLI, via the Supabase MCP generate_typescript_types tool)
-//
-// MANUAL FIX: the generator emits `save_item_version`'s Args as
-// `p_old_item_id: string`, but the function's actual parameter is nullable
-// (NULL means "create a brand-new item"), and Supabase's generator does not
-// encode SQL parameter nullability. Left as `string` this makes `createItem()`
-// fail to typecheck when it legitimately passes `null`. Corrected to
-// `string | null` by hand below; re-check this after every regeneration.
-
 export type Json =
   | string
   | number
@@ -107,13 +94,6 @@ export type Database = {
             columns: ["response_id"]
             isOneToOne: true
             referencedRelation: "full_export_v1"
-            referencedColumns: ["response_id"]
-          },
-          {
-            foreignKeyName: "audio_recordings_response_id_fkey"
-            columns: ["response_id"]
-            isOneToOne: true
-            referencedRelation: "ml_export_v1"
             referencedColumns: ["response_id"]
           },
           {
@@ -356,6 +336,7 @@ export type Database = {
       }
       item_options: {
         Row: {
+          display_order: number | null
           id: string
           is_correct: boolean
           item_id: string
@@ -363,6 +344,7 @@ export type Database = {
           option_text: string
         }
         Insert: {
+          display_order?: number | null
           id?: string
           is_correct?: boolean
           item_id: string
@@ -370,6 +352,7 @@ export type Database = {
           option_text: string
         }
         Update: {
+          display_order?: number | null
           id?: string
           is_correct?: boolean
           item_id?: string
@@ -467,78 +450,6 @@ export type Database = {
           },
         ]
       }
-      ml_snapshots: {
-        Row: {
-          anonymized_code: string | null
-          class_grade: number | null
-          domain: string | null
-          id: string
-          input_modality: string | null
-          is_correct: boolean | null
-          item_code: string | null
-          replay_count_instruction: number | null
-          replay_count_stimulus: number | null
-          response_format: string | null
-          response_id: string | null
-          response_latency_from_first_ms: number | null
-          response_latency_from_last_ms: number | null
-          scored_by: string | null
-          selected_option_key: string | null
-          snapshot_label: string | null
-          snapshot_taken_at: string
-          subdomain: string | null
-          submitted_at: string | null
-          technical_retry_count: number | null
-          typed_value: string | null
-        }
-        Insert: {
-          anonymized_code?: string | null
-          class_grade?: number | null
-          domain?: string | null
-          id?: string
-          input_modality?: string | null
-          is_correct?: boolean | null
-          item_code?: string | null
-          replay_count_instruction?: number | null
-          replay_count_stimulus?: number | null
-          response_format?: string | null
-          response_id?: string | null
-          response_latency_from_first_ms?: number | null
-          response_latency_from_last_ms?: number | null
-          scored_by?: string | null
-          selected_option_key?: string | null
-          snapshot_label?: string | null
-          snapshot_taken_at?: string
-          subdomain?: string | null
-          submitted_at?: string | null
-          technical_retry_count?: number | null
-          typed_value?: string | null
-        }
-        Update: {
-          anonymized_code?: string | null
-          class_grade?: number | null
-          domain?: string | null
-          id?: string
-          input_modality?: string | null
-          is_correct?: boolean | null
-          item_code?: string | null
-          replay_count_instruction?: number | null
-          replay_count_stimulus?: number | null
-          response_format?: string | null
-          response_id?: string | null
-          response_latency_from_first_ms?: number | null
-          response_latency_from_last_ms?: number | null
-          scored_by?: string | null
-          selected_option_key?: string | null
-          snapshot_label?: string | null
-          snapshot_taken_at?: string
-          subdomain?: string | null
-          submitted_at?: string | null
-          technical_retry_count?: number | null
-          typed_value?: string | null
-        }
-        Relationships: []
-      }
       participants: {
         Row: {
           age_months: number | null
@@ -608,6 +519,7 @@ export type Database = {
       responses: {
         Row: {
           attempt_number: number
+          client_time_origin_ms: number | null
           id: string
           input_modality: string | null
           is_correct: boolean | null
@@ -633,6 +545,7 @@ export type Database = {
         }
         Insert: {
           attempt_number?: number
+          client_time_origin_ms?: number | null
           id?: string
           input_modality?: string | null
           is_correct?: boolean | null
@@ -658,6 +571,7 @@ export type Database = {
         }
         Update: {
           attempt_number?: number
+          client_time_origin_ms?: number | null
           id?: string
           input_modality?: string | null
           is_correct?: boolean | null
@@ -767,11 +681,16 @@ export type Database = {
           audio_review_verdict: string | null
           audio_storage_path: string | null
           class_grade: number | null
+          client_time_origin_ms: number | null
+          correct_answer: string | null
+          correct_option_key: string | null
+          correct_option_text: string | null
           domain: string | null
           gender: string | null
           home_area: string | null
           input_modality: string | null
           is_reliability_subsample: boolean | null
+          is_scored: boolean | null
           is_superseded: boolean | null
           item_code: string | null
           q1_doctor_eval: boolean | null
@@ -788,6 +707,7 @@ export type Database = {
           response_latency_from_last_ms: number | null
           scoring_mode: string | null
           selected_option_key: string | null
+          selected_option_text: string | null
           selection_change_count: number | null
           session_ended_at: string | null
           session_id: string | null
@@ -803,54 +723,16 @@ export type Database = {
         }
         Relationships: []
       }
-      ml_export_v1: {
-        Row: {
-          anonymized_code: string | null
-          class_grade: number | null
-          domain: string | null
-          input_modality: string | null
-          is_correct: boolean | null
-          item_code: string | null
-          replay_count_instruction: number | null
-          replay_count_stimulus: number | null
-          response_format: string | null
-          response_id: string | null
-          response_latency_from_first_ms: number | null
-          response_latency_from_last_ms: number | null
-          scored_by: string | null
-          selected_option_key: string | null
-          subdomain: string | null
-          submitted_at: string | null
-          technical_retry_count: number | null
-          typed_value: string | null
-        }
-        Relationships: []
-      }
       participant_summary_v1: {
         Row: {
-          anonymized_code: string | null
-          class_grade: number | null
           age_years: number | null
-          gender: string | null
-          home_area: string | null
-          q1_doctor_eval: boolean | null
-          q1_school_eval: boolean | null
-          q1_not_sure: boolean | null
-          q2_extra_primary_support: string | null
-          q3_family_history: string | null
-          session_started_at: string | null
-          session_ended_at: string | null
-          session_minutes: number | null
-          responses_total: number | null
-          audio_total: number | null
+          anonymized_code: string | null
           audio_correct: number | null
           audio_incorrect: number | null
+          audio_total: number | null
           audio_unclear: number | null
           audio_unreviewed: number | null
-          mean_latency_ms_all: number | null
-          replays_stimulus_total: number | null
-          replays_instruction_total: number | null
-          main_input_modality: string | null
+          class_grade: number | null
           d1_1_answered: number | null
           d1_1_mean_latency_ms: number | null
           d1_1_replays: number | null
@@ -899,6 +781,21 @@ export type Database = {
           d5_2_answered: number | null
           d5_2_mean_latency_ms: number | null
           d5_2_replays: number | null
+          gender: string | null
+          home_area: string | null
+          main_input_modality: string | null
+          mean_latency_ms_all: number | null
+          q1_doctor_eval: boolean | null
+          q1_not_sure: boolean | null
+          q1_school_eval: boolean | null
+          q2_extra_primary_support: string | null
+          q3_family_history: string | null
+          replays_instruction_total: number | null
+          replays_stimulus_total: number | null
+          responses_total: number | null
+          session_ended_at: string | null
+          session_minutes: number | null
+          session_started_at: string | null
           sr_answered: number | null
           sr_mean_latency_ms: number | null
         }
@@ -991,7 +888,7 @@ export type Database = {
       is_researcher: { Args: never; Returns: boolean }
       reliability_subsample_rate: { Args: never; Returns: number }
       save_item_version: {
-        Args: { p_item: Json; p_old_item_id: string | null; p_options: Json }
+        Args: { p_item: Json; p_old_item_id: string; p_options: Json }
         Returns: string
       }
       start_session: {
