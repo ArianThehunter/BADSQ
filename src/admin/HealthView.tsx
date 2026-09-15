@@ -9,9 +9,12 @@
 import { useEffect, useState } from 'react';
 import {
   getHealthSummary,
+  getRetentionSummary,
+  deleteExpiredAudio,
   downloadFullExportCsv,
   downloadParticipantSummaryCsv,
   type HealthSummary,
+  type RetentionSummary,
 } from '../lib/adminData';
 
 function Stat({ label, value, warn }: { label: string; value: number; warn?: boolean }) {
@@ -28,6 +31,9 @@ export default function HealthView() {
   const [error, setError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   const [exportMessage, setExportMessage] = useState<string | null>(null);
+  const [retention, setRetention] = useState<RetentionSummary | null>(null);
+  const [purging, setPurging] = useState(false);
+  const [purgeMessage, setPurgeMessage] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -38,10 +44,37 @@ export default function HealthView() {
       .catch((err) => {
         if (!cancelled) setError(err instanceof Error ? err.message : String(err));
       });
+    getRetentionSummary()
+      .then((data) => {
+        if (!cancelled) setRetention(data);
+      })
+      .catch(() => {
+        // Retention is supplementary; a failure here must not blank the page.
+      });
     return () => {
       cancelled = true;
     };
   }, []);
+
+  async function handlePurge() {
+    setPurging(true);
+    setPurgeMessage(null);
+    try {
+      const result = await deleteExpiredAudio();
+      setPurgeMessage(
+        result.deleted === 0 && result.failed === 0
+          ? 'Nothing is past its deletion date.'
+          : `Destroyed ${result.deleted} recording(s).` +
+              (result.failed > 0 ? ` ${result.failed} could not be removed and were left marked as still stored.` : '') +
+              (result.remaining > 0 ? ` ${result.remaining} still overdue — run again.` : ''),
+      );
+      setRetention(await getRetentionSummary());
+    } catch (err) {
+      setPurgeMessage(err instanceof Error ? err.message : String(err));
+    } finally {
+      setPurging(false);
+    }
+  }
 
   async function handleExport() {
     setExporting(true);
@@ -102,6 +135,63 @@ export default function HealthView() {
           instrument, so every active item should carry real audio before use with actual
           participants.
         </p>
+      )}
+
+      {retention && (
+        <div
+          className={retention.overdue > 0 ? 'notice notice-warn' : 'notice'}
+          style={{ marginTop: '1.5rem' }}
+        >
+          <h3 style={{ marginTop: 0 }}>Audio retention</h3>
+          <p className="muted small">
+            Participant recordings are destroyed <strong>90 days after upload</strong>. The rating, the latency
+            and the item linkage are kept forever — only the audio itself goes.
+          </p>
+
+          <div className="grid-2">
+            <Stat label="Recordings still stored" value={retention.liveRecordings} />
+            <Stat label="Past their deletion date" value={retention.overdue} warn />
+            <Stat label="Due within 14 days" value={retention.dueSoon} />
+            <Stat label="Audio already destroyed" value={retention.alreadyDeleted} />
+          </div>
+
+          {(retention.dueSoonUnrated > 0 || retention.dueSoonMissingSecond > 0) && (
+            <div className="notice notice-warn" style={{ marginTop: '0.75rem' }}>
+              <p className="small" style={{ margin: 0 }}>
+                <strong>Rate these before they are deleted.</strong>{' '}
+                {retention.dueSoonUnrated > 0 && (
+                  <>
+                    {retention.dueSoonUnrated} recording(s) due within 14 days have <strong>no verdict yet</strong>.
+                  </>
+                )}{' '}
+                {retention.dueSoonMissingSecond > 0 && (
+                  <>
+                    {retention.dueSoonMissingSecond} reliability-subsample recording(s) due within 14 days are still
+                    missing their <strong>second rating</strong>.
+                  </>
+                )}{' '}
+                Once the audio is gone the verdict cannot be recovered — it is the only thing that outlives the file.
+              </p>
+            </div>
+          )}
+
+          <div style={{ marginTop: '0.75rem' }}>
+            <button type="button" disabled={purging || retention.overdue === 0} onClick={() => void handlePurge()}>
+              {purging ? 'Destroying…' : `Destroy ${retention.overdue} expired recording(s)`}
+            </button>
+            {purgeMessage && (
+              <p className="small" style={{ marginTop: '0.5rem' }}>
+                {purgeMessage}
+              </p>
+            )}
+            <p className="muted small" style={{ marginTop: '0.5rem', marginBottom: 0 }}>
+              This is a manual step, run here rather than automatically: deleting a child&apos;s voice recording is
+              not something that should happen without someone choosing to do it. It removes the file through
+              Storage and records when that happened. Nothing is scheduled to run on its own, so it has to be done
+              — put it in the project calendar.
+            </p>
+          </div>
+        </div>
       )}
 
       <div className="notice" style={{ marginTop: '1.5rem' }}>

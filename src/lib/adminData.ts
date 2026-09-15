@@ -342,6 +342,131 @@ export async function setReliabilitySubsample(audioId: string, value: boolean): 
   if (error) fail('Could not update the reliability-subsample flag', error);
 }
 
+// ---------------------------------------------------------------- retention
+
+export type RetentionSummary = {
+  /** Audio still stored (deleted_at is null). */
+  liveRecordings: number;
+  /** Live recordings whose scheduled_deletion_at has passed. */
+  overdue: number;
+  /** Live recordings due within the next 14 days. */
+  dueSoon: number;
+  /** Of those due within 14 days, how many still lack a primary verdict. */
+  dueSoonUnrated: number;
+  /** Of those due within 14 days, subsample recordings still lacking a second rating. */
+  dueSoonMissingSecond: number;
+  /** Audio already destroyed. */
+  alreadyDeleted: number;
+};
+
+/**
+ * Retention status for participant audio (migration 0027: destroy 90 days
+ * after upload).
+ *
+ * `dueSoonUnrated` and `dueSoonMissingSecond` are the numbers that actually
+ * matter operationally. Deleting audio is the commitment; deleting audio that
+ * was never rated is data lost permanently, because the rating is the only
+ * thing that outlives the file. With the reliability subsample now requiring
+ * two independent passes, BOTH have to finish inside the 90 days.
+ */
+export async function getRetentionSummary(): Promise<RetentionSummary> {
+  const now = new Date();
+  const soon = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000).toISOString();
+
+  const { data, error } = await supabase
+    .from('audio_recordings')
+    .select('scheduled_deletion_at, deleted_at, primary_verdict, secondary_verdict, is_reliability_subsample');
+  if (error) fail('Could not load retention status', error);
+
+  const rows = data ?? [];
+  const live = rows.filter((r) => r.deleted_at == null);
+  const dueSoonRows = live.filter(
+    (r) => r.scheduled_deletion_at != null && r.scheduled_deletion_at <= soon,
+  );
+
+  return {
+    liveRecordings: live.length,
+    overdue: live.filter(
+      (r) => r.scheduled_deletion_at != null && new Date(r.scheduled_deletion_at) <= now,
+    ).length,
+    dueSoon: dueSoonRows.length,
+    dueSoonUnrated: dueSoonRows.filter((r) => r.primary_verdict == null).length,
+    dueSoonMissingSecond: dueSoonRows.filter(
+      (r) => r.is_reliability_subsample && r.secondary_verdict == null,
+    ).length,
+    alreadyDeleted: rows.length - live.length,
+  };
+}
+
+/** How many recordings are destroyed per call, to keep one click bounded. */
+const DELETE_BATCH_SIZE = 100;
+
+export type DeletionResult = { deleted: number; failed: number; remaining: number };
+
+/**
+ * Destroy the audio of every recording whose deletion date has passed.
+ *
+ * Goes through the Storage API (`storage.remove`), NOT by deleting
+ * storage.objects rows: this project has already produced orphaned blobs that
+ * way, and an orphaned blob is a file that a parent was told no longer exists.
+ *
+ * The audio_recordings ROW is kept and stamped with deleted_at. That is the
+ * entire reason the table was split from `responses` in the first place -- the
+ * rating, the latency and the item linkage are the research data, and they
+ * survive the recording by design.
+ *
+ * Returns how many remain so the caller can show progress across batches.
+ */
+export async function deleteExpiredAudio(): Promise<DeletionResult> {
+  const nowIso = new Date().toISOString();
+
+  const { data, error } = await supabase
+    .from('audio_recordings')
+    .select('id, storage_path')
+    .is('deleted_at', null)
+    .not('scheduled_deletion_at', 'is', null)
+    .lte('scheduled_deletion_at', nowIso)
+    .order('scheduled_deletion_at', { ascending: true })
+    .limit(DELETE_BATCH_SIZE);
+  if (error) fail('Could not list expired recordings', error);
+
+  const batch = data ?? [];
+  if (batch.length === 0) return { deleted: 0, failed: 0, remaining: 0 };
+
+  const { data: removed, error: removeErr } = await supabase.storage
+    .from(AUDIO_BUCKET)
+    .remove(batch.map((r) => r.storage_path));
+  if (removeErr) fail('Could not delete the audio files', removeErr);
+
+  // Only stamp rows whose file the Storage API confirmed it removed. A row
+  // marked deleted while its file survives is the worst outcome here: it
+  // reports a commitment as kept when it is not.
+  const removedPaths = new Set((removed ?? []).map((o) => o.name));
+  const confirmed = batch.filter((r) => removedPaths.has(r.storage_path));
+
+  if (confirmed.length > 0) {
+    const { error: stampErr } = await supabase
+      .from('audio_recordings')
+      .update({ deleted_at: nowIso })
+      .in('id', confirmed.map((r) => r.id));
+    if (stampErr) fail('Files were deleted but could not be marked as deleted', stampErr);
+  }
+
+  const { count, error: countErr } = await supabase
+    .from('audio_recordings')
+    .select('id', { count: 'exact', head: true })
+    .is('deleted_at', null)
+    .not('scheduled_deletion_at', 'is', null)
+    .lte('scheduled_deletion_at', nowIso);
+  if (countErr) fail('Could not recount expired recordings', countErr);
+
+  return {
+    deleted: confirmed.length,
+    failed: batch.length - confirmed.length,
+    remaining: count ?? 0,
+  };
+}
+
 // ---------------------------------------------------------------- participants
 
 export type ParticipantRow = {
@@ -499,26 +624,26 @@ function csvEscape(value: unknown): string {
   return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
-// A CSV gets opened well after it's downloaded, not immediately — a short-lived signed
-// URL (the app's normal 300s/3600s playback links) would already be dead by then. 30
-// days is a reasonable "download and use soon" window for a manual export action.
 /**
  * Lifetime of the playable audio links written into the CSV.
  *
- * The dataset is retained indefinitely by research decision — no expiry, no
- * automatic deletion, recordings included. A Supabase signed URL always
- * carries SOME expiry (it is a signed token; there is no "never expires"
- * option), so this is set to an effectively-indefinite 10-year horizon rather
- * than a real deadline. Supabase documents no maximum for `expiresIn`, and
- * storage signing uses a dedicated key that survives Auth key rotation.
+ * 30 days, reduced from a 10-year horizon when retention policy changed to
+ * deletion 90 days after upload (migration 0027). A link must never outlive
+ * the file it points at: a decade-long token to a recording that is destroyed
+ * at 90 days is both useless after that point and, before it, a bearer
+ * credential far outliving the commitment made to the child's parents.
  *
- * PRIVACY NOTE, unchanged by that decision: each link is a bearer token to a
- * child's voice recording and cannot be revoked without contacting Supabase
- * support. Anyone who obtains the CSV holds working audio links for a decade.
- * `audio_storage_path` is exported alongside, so links can always be
- * regenerated — treat exported files as sensitive material accordingly.
+ * A CSV is opened well after it is downloaded, so the app's ordinary 300s
+ * playback links would already be dead; 30 days is a "download and work
+ * through it" window that still expires well inside the retention period.
+ *
+ * PRIVACY NOTE: each link is a bearer token to a child's voice recording and
+ * cannot be revoked without contacting Supabase support. Anyone holding the
+ * CSV can play the audio until the link expires. `audio_storage_path` is
+ * exported alongside, so a researcher can always regenerate a fresh link from
+ * the admin panel -- treat exported files as sensitive material.
  */
-const EXPORT_AUDIO_URL_EXPIRY_SECONDS = 60 * 60 * 24 * 365 * 10;
+const EXPORT_AUDIO_URL_EXPIRY_SECONDS = 60 * 60 * 24 * 30;
 
 /**
  * Fetches the entire raw dataset and triggers a CSV file download in the
