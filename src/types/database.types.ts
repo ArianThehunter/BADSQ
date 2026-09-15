@@ -16,7 +16,6 @@ export type Database = {
     Tables: {
       audio_recordings: {
         Row: {
-          agreement: boolean | null
           deleted_at: string | null
           duration_ms: number | null
           file_size_bytes: number | null
@@ -34,11 +33,11 @@ export type Database = {
           secondary_rated_at: string | null
           secondary_rater_id: string | null
           secondary_rating: boolean | null
+          secondary_verdict: string | null
           storage_path: string
           uploaded_at: string
         }
         Insert: {
-          agreement?: boolean | null
           deleted_at?: string | null
           duration_ms?: number | null
           file_size_bytes?: number | null
@@ -56,11 +55,11 @@ export type Database = {
           secondary_rated_at?: string | null
           secondary_rater_id?: string | null
           secondary_rating?: boolean | null
+          secondary_verdict?: string | null
           storage_path: string
           uploaded_at?: string
         }
         Update: {
-          agreement?: boolean | null
           deleted_at?: string | null
           duration_ms?: number | null
           file_size_bytes?: number | null
@@ -78,6 +77,7 @@ export type Database = {
           secondary_rated_at?: string | null
           secondary_rater_id?: string | null
           secondary_rating?: boolean | null
+          secondary_verdict?: string | null
           storage_path?: string
           uploaded_at?: string
         }
@@ -679,6 +679,7 @@ export type Database = {
           audio_mime_type: string | null
           audio_notes: string | null
           audio_review_verdict: string | null
+          audio_second_verdict: string | null
           audio_storage_path: string | null
           class_grade: number | null
           client_time_origin_ms: number | null

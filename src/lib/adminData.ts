@@ -231,6 +231,106 @@ export async function submitAudioVerdict(
 }
 
 /**
+ * Recordings this rater may give an INDEPENDENT SECOND rating to.
+ *
+ * The filter is the whole methodology, so it is worth stating precisely:
+ *   - is_reliability_subsample  -- only the randomly pre-assigned ~20%.
+ *   - primary_verdict is not null -- a first rating exists to agree or
+ *     disagree with.
+ *   - primary_rater_id <> me    -- agreement between a person and themselves
+ *     is not agreement. Also enforced by a CHECK constraint (migration 0026),
+ *     because a UI-only rule is one refactor away from lapsing.
+ *   - secondary_verdict is null -- not already second-rated.
+ *
+ * CRITICAL: this deliberately does NOT select primary_verdict, primary_rating
+ * or notes. The second rating has to be blind -- a rater who can see the first
+ * judgement is anchored by it, and the resulting kappa measures compliance
+ * rather than agreement. Those columns are readable by this role, so the
+ * blinding is a property of what this query asks for; keep it that way.
+ */
+export async function listSecondRatingQueue(raterId: string): Promise<RatingQueueRow[]> {
+  const { data: recordings, error } = await supabase
+    .from('audio_recordings')
+    .select('id, response_id, storage_path, mime_type, duration_ms, rating_status, is_reliability_subsample, uploaded_at')
+    .eq('is_reliability_subsample', true)
+    .not('primary_verdict', 'is', null)
+    .neq('primary_rater_id', raterId)
+    .is('secondary_verdict', null)
+    .order('uploaded_at', { ascending: true });
+  if (error) fail('Could not load the second-rating queue', error);
+  if (!recordings || recordings.length === 0) return [];
+
+  const responseIds = [...new Set(recordings.map((r) => r.response_id))];
+  const { data: responses, error: respErr } = await supabase
+    .from('responses')
+    .select('id, session_id, item_id')
+    .in('id', responseIds);
+  if (respErr) fail('Could not load responses for the second-rating queue', respErr);
+
+  const itemIds = [...new Set((responses ?? []).map((r) => r.item_id))];
+  const { data: items, error: itemErr } = await supabase
+    .from('items')
+    .select('id, item_code, stimulus_text, correct_answer, domain, subdomain')
+    .in('id', itemIds);
+  if (itemErr) fail('Could not load items for the second-rating queue', itemErr);
+
+  const responseById = indexBy(responses ?? [], (r) => r.id);
+  const itemById = indexBy(items ?? [], (i) => i.id);
+
+  return recordings.map((r) => {
+    const response = responseById.get(r.response_id);
+    const item = response ? itemById.get(response.item_id) : undefined;
+    return {
+      audioId: r.id,
+      responseId: r.response_id,
+      storagePath: r.storage_path,
+      mimeType: r.mime_type,
+      durationMs: r.duration_ms,
+      ratingStatus: r.rating_status,
+      isReliabilitySubsample: r.is_reliability_subsample,
+      // Blinded on purpose -- see the doc comment above.
+      notes: null,
+      verdict: null,
+      primaryRating: null,
+      itemCode: item?.item_code ?? '(unknown item)',
+      stimulusText: item?.stimulus_text ?? null,
+      correctAnswer: item?.correct_answer ?? null,
+      domain: item?.domain ?? '?',
+      subdomain: item?.subdomain ?? null,
+      // Participant identity is not needed to judge a recording and is not
+      // fetched here, keeping the second pass as context-free as possible.
+      participantId: null,
+      anonymizedCode: null,
+      classGrade: null,
+      uploadedAt: r.uploaded_at,
+    };
+  });
+}
+
+/**
+ * Store an independent second rating. Does not touch primary_*, rating_status,
+ * notes, or anything in `responses` -- it adds a column beside the first
+ * judgement rather than revising it, which is what makes the pair usable for
+ * an agreement coefficient.
+ */
+export async function submitSecondVerdict(
+  audioId: string,
+  verdict: AudioVerdict,
+  raterId: string,
+): Promise<void> {
+  const { error } = await supabase
+    .from('audio_recordings')
+    .update({
+      secondary_verdict: verdict,
+      secondary_rating: verdict === 'correct' ? true : verdict === 'incorrect' ? false : null,
+      secondary_rater_id: raterId,
+      secondary_rated_at: new Date().toISOString(),
+    })
+    .eq('id', audioId);
+  if (error) fail('Could not save the second rating', error);
+}
+
+/**
  * Manual OVERRIDE on top of submit_session()'s automatic random assignment
  * (migration 0008, reliability_subsample_rate()). Not the primary mechanism —
  * the baseline sample must stay unbiased by construction, so this exists for

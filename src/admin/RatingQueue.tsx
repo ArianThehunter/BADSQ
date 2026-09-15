@@ -18,7 +18,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ResearcherProfile } from '../lib/supabaseClient';
-import { listRecordings, type RatingQueueRow } from '../lib/adminData';
+import { listRecordings, listSecondRatingQueue, type RatingQueueRow } from '../lib/adminData';
 import RecordingCard from './RecordingCard';
 
 export default function RatingQueue({ profile }: { profile: ResearcherProfile }) {
@@ -26,17 +26,24 @@ export default function RatingQueue({ profile }: { profile: ResearcherProfile })
   const [error, setError] = useState<string | null>(null);
   const [showReviewed, setShowReviewed] = useState(false);
   const [subdomain, setSubdomain] = useState<string>('all');
+  const [tab, setTab] = useState<'primary' | 'second'>('primary');
+  const [secondRows, setSecondRows] = useState<RatingQueueRow[] | null>(null);
 
   const load = useCallback(async () => {
     try {
       // Everything, always: the counts below need the full picture, and
       // switching filters should not re-query.
-      setRows(await listRecordings({ includeRated: true }));
+      const [all, second] = await Promise.all([
+        listRecordings({ includeRated: true }),
+        listSecondRatingQueue(profile.id),
+      ]);
+      setRows(all);
+      setSecondRows(second);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
-  }, []);
+  }, [profile.id]);
 
   useEffect(() => {
     // (oxlint flags this as react/set-state-in-effect; not applicable — load()'s
@@ -101,6 +108,53 @@ export default function RatingQueue({ profile }: { profile: ResearcherProfile })
 
       <div className="filters">
         <label className="small">
+          Pass{' '}
+          <select value={tab} onChange={(e) => setTab(e.target.value as 'primary' | 'second')}>
+            <option value="primary">My rating</option>
+            <option value="second">
+              Second rating{secondRows ? ` (${secondRows.length} waiting)` : ''}
+            </option>
+          </select>
+        </label>
+      </div>
+
+      {tab === 'second' ? (
+        <>
+          <div className="notice">
+            <p className="small" style={{ margin: 0 }}>
+              These are reliability-subsample recordings already rated by <strong>someone else</strong>. Rate them
+              independently: their verdict, their notes and the participant's code are hidden on purpose, because a
+              second rating that can see the first one measures agreement with a colleague rather than agreement
+              about the audio. Recordings you rated yourself never appear here.
+            </p>
+          </div>
+          {secondRows === null ? (
+            <p className="muted">Loading…</p>
+          ) : secondRows.length === 0 ? (
+            <p className="muted">
+              Nothing waiting for a second rating. Recordings appear here once another researcher has rated a
+              recording that was flagged for double-rating.
+            </p>
+          ) : (
+            <div className="rec-list">
+              {secondRows.map((row) => (
+                <RecordingCard
+                  key={row.audioId}
+                  row={row}
+                  canRate={profile.can_rate}
+                  raterId={profile.id}
+                  onChanged={load}
+                  showParticipant={false}
+                  mode="second"
+                />
+              ))}
+            </div>
+          )}
+        </>
+      ) : (
+      <>
+      <div className="filters">
+        <label className="small">
           Task{' '}
           <select value={subdomain} onChange={(e) => setSubdomain(e.target.value)}>
             <option value="all">All tasks</option>
@@ -139,6 +193,8 @@ export default function RatingQueue({ profile }: { profile: ResearcherProfile })
             />
           ))}
         </div>
+      )}
+      </>
       )}
     </div>
   );

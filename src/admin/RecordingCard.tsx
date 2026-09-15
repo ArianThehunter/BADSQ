@@ -19,11 +19,25 @@ import { useState } from 'react';
 import {
   signedRatingAudioUrl,
   submitAudioVerdict,
+  submitSecondVerdict,
   saveRecordingNotes,
   setReliabilitySubsample,
   type AudioVerdict,
   type RatingQueueRow,
 } from '../lib/adminData';
+
+/**
+ * 'primary' -- the ordinary rating pass.
+ * 'second'  -- the BLIND independent second rating of a reliability-subsample
+ *              recording. The card must show the audio and the item, and must
+ *              NOT show the first rater's verdict, their notes, or the
+ *              subsample toggle: a second rater who can see the first
+ *              judgement is anchored by it, and the resulting agreement
+ *              coefficient measures compliance rather than agreement.
+ *              listSecondRatingQueue() already withholds those fields; this
+ *              keeps the UI from reintroducing them.
+ */
+export type RatingMode = 'primary' | 'second';
 
 const VERDICTS: { value: AudioVerdict; label: string; className: string }[] = [
   { value: 'correct', label: '✓ Correct', className: 'selected-yes' },
@@ -48,13 +62,16 @@ export default function RecordingCard({
   raterId,
   onChanged,
   showParticipant = true,
+  mode = 'primary',
 }: {
   row: RatingQueueRow;
   canRate: boolean;
   raterId: string;
   onChanged: () => void | Promise<void>;
   showParticipant?: boolean;
+  mode?: RatingMode;
 }) {
+  const blind = mode === 'second';
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -138,15 +155,23 @@ export default function RecordingCard({
                   className={row.verdict === v.value ? `choice ${v.className}` : 'choice'}
                   aria-pressed={row.verdict === v.value}
                   disabled={busy}
-                  onClick={() => void run(() => submitAudioVerdict(row.audioId, v.value, raterId))}
+                  onClick={() =>
+                    void run(() =>
+                      blind
+                        ? submitSecondVerdict(row.audioId, v.value, raterId)
+                        : submitAudioVerdict(row.audioId, v.value, raterId),
+                    )
+                  }
                 >
                   {v.label}
                 </button>
               ))}
               <span className="small muted rec-rate-state">
-                {rated
-                  ? `Saved as ${VERDICT_WORD[row.verdict!]} — click any option to change it`
-                  : 'Not yet reviewed'}
+                {blind
+                  ? 'Independent second rating — the first verdict is hidden on purpose'
+                  : rated
+                    ? `Saved as ${VERDICT_WORD[row.verdict!]} — click any option to change it`
+                    : 'Not yet reviewed'}
               </span>
             </div>
             {row.verdict === 'unclear' && (
@@ -157,6 +182,7 @@ export default function RecordingCard({
             )}
           </div>
 
+          {!blind && (
           <div className="rec-extras">
             <label className="inline small" title="A random 20% of recordings are flagged automatically at submission so a second researcher can rate the same audio independently — that is what lets you measure how much two raters agree. You normally do not need to change this.">
               <input
@@ -174,8 +200,9 @@ export default function RecordingCard({
               </button>
             )}
           </div>
+          )}
 
-          {(noteOpen || row.notes) && (
+          {!blind && (noteOpen || row.notes) && (
             <div className="rec-note">
               <textarea
                 rows={2}
