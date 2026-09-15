@@ -97,18 +97,29 @@ export type LocalDraft = {
 /**
  * How long a draft stays resumable after its last write.
  *
- * A genuine interruption (dropped tab, locked screen, iOS Safari evicting a
- * backgrounded page) is picked up again within a couple of minutes. A draft
- * left behind by the *previous participant* on a shared device is almost
- * always much older than this. Expiring on inactivity is what stops Student B
- * from ever being offered Student A's session in the first place -- it closes
- * the hole without relying on a child reading the resume prompt correctly.
+ * DELIBERATELY SHORT (3 minutes, not the 30 originally chosen). The
+ * class/gender identity re-check in TestRunner (see handleResumeYes) is
+ * close to useless in a room that is one class and one gender -- every
+ * student answers it identically, so it cannot actually distinguish Student
+ * A from Student B on a device handed between them. Expiry is therefore the
+ * REAL guard in that setting, not a backstop for it: a device physically
+ * handed to the next student takes longer than 3 minutes in practice, while
+ * a dropped connection during a live question is usually reconnected within
+ * seconds. Expiring on inactivity is what stops Student B from ever being
+ * offered Student A's session, without depending on either a child reading
+ * the resume prompt correctly or the identity check meaning anything.
+ *
+ * The real cost: a genuine interruption that takes LONGER than 3 minutes to
+ * resolve (a stuck app, a supervisor dealing with something else, a longer
+ * connectivity drop) now loses the session and forces a full restart, where
+ * the old 30-minute window would have preserved it. That trade was made
+ * deliberately, in favour of the contamination risk being small.
  *
  * Measured from the last write, not from startedAtMs: a student interrupted at
  * item 60 has a draft that STARTED 40 minutes ago but was touched seconds ago,
  * and must still be resumable.
  */
-export const DRAFT_STALE_AFTER_MS = 30 * 60 * 1000;
+export const DRAFT_STALE_AFTER_MS = 3 * 60 * 1000;
 
 /**
  * True when a draft is too old to offer for resume. TestRunner discards these
