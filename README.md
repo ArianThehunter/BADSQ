@@ -3,28 +3,34 @@
 Data-collection instrument for a dyslexia screening study with 12–14 year old participants
 in Bangladesh. Vite + React + TypeScript client, Supabase (Postgres + Storage + Auth) backend.
 
-**Current phase: 4 — unbiased reliability sampling, defense-in-depth on I1, deployment prepared.**
-Reliability-subsample assignment is now automatic and random at submission time (not rater-chosen)
-so the Cohen's kappa the Development Report commits to reporting isn't biased by which recordings
-a rater happened to pick. The `upsert:true` that made I1 exploitable is removed, independent of the
-Phase 3 policy fix. The app is ready to deploy to Vercel/Netlify's free tier — zero server config
-needed — with the deployment itself handed off to the researcher (see §Deployment below).
+**Status: ready for real data collection.** The instrument has been run end to end on three
+real devices — Android/Chrome, iPhone/Safari and Windows/Edge — completing all 77 items with
+audio recording, latency capture and atomic submission working on each. The database has been
+cleared of pilot data.
 
-Read the reports in order: [PHASE_0_REPORT.md](PHASE_0_REPORT.md) found seven defects (F1–F7) in
-migrations 0001–0003; [MIGRATION_0004_REPORT.md](MIGRATION_0004_REPORT.md) fixed those and found
-ten more (G1–G10); [PHASE_1_REPORT.md](PHASE_1_REPORT.md) fixes seven of those (migration 0005),
-adds a self-testing release gate against the view-column-drift defect class that had recurred
-twice, and builds researcher magic-link auth plus the Item Bank Editor; [PHASE_2_REPORT.md](PHASE_2_REPORT.md)
-closes H1 and adds atomic item versioning (migration 0006), builds TestRunner and the six response
-components, and — via genuine browser-driven testing, new that phase — finds **I1: participant
-audio recordings cannot be submitted at all**; [PHASE_3_REPORT.md](PHASE_3_REPORT.md) replaces
-magic-link auth with email+password, fixes I1 (migration 0007), resolves the Phase 2 curl
-discrepancy (it was neither hypothesis — see the report), closes the verification suite's own
-blind spot that let I1 through for two phases, and builds RatingQueue/ParticipantsView/HealthView
-against a real researcher session for the first time; [PHASE_4_REPORT.md](PHASE_4_REPORT.md) fixes
-the reliability-subsample assignment mechanism (migration 0008), removes I1's other root cause as
-defense in depth, finds **J1** (one function missing this project's own search_path invariant —
-assessed as not currently exploitable, not fixed), and prepares the app for real deployment.
+Three documents describe the system in depth, and are more current than this file:
+
+| Document | For |
+|---|---|
+| [TECHNICAL_DOCUMENTATION.md](TECHNICAL_DOCUMENTATION.md) | A developer inheriting the codebase |
+| [RESEARCH_DOCUMENTATION.md](RESEARCH_DOCUMENTATION.md) | A researcher evaluating or replicating the instrument |
+| [DOCUMENTATION_NOTES.md](DOCUMENTATION_NOTES.md) | What could not be documented, conflicts found, open problems |
+
+The `PHASE_*.md` reports are a historical record of the build, not a description of the current
+system. Where they disagree with the code, the code is correct.
+
+## What the instrument does
+
+93 active items: 77 presented to each participant (71 across five domains plus a 6-item
+criterion self-report block) and 16 demonstration items whose responses are never stored.
+Everything is delivered as pre-recorded Bangla audio; there is no free-text keyboard entry
+anywhere, so reading and spelling ability never gate a response.
+
+**The platform scores nothing.** Since migration `0012` no response is marked correct or
+incorrect for any format — `responses.is_correct` is always NULL. The only judgement stored
+anywhere is a researcher's verdict on a spoken recording, and that lives on the recording,
+attributed to the rater. Scoring, norming and classification are downstream analysis that this
+platform deliberately does not perform.
 
 ## Privacy posture
 
@@ -32,6 +38,11 @@ This app handles data from minors. There are deliberately **no analytics, no tel
 no third-party scripts or asset requests** of any kind. The Bangla webfont is self-hosted
 (see [public/fonts/README.md](public/fonts/README.md)) rather than loaded from Google Fonts,
 so no participant IP address is ever disclosed to a third party. Keep it that way.
+
+**Participant audio is destroyed 90 days after upload** (migration `0027`). The rating, the
+latency and the item linkage survive — that is why `audio_recordings` is a separate table from
+`responses`. Deletion is a manual action in the admin panel's Health view and **nothing runs on
+a schedule**, so it will not happen unless someone does it. Put it in the project calendar.
 
 ## Setup
 
@@ -44,109 +55,115 @@ npm run dev
 `.env` is gitignored. Never put a `service_role` / secret key in it — Vite inlines every
 `VITE_*` variable into the client bundle.
 
-Beyond that, dashboard steps that are **not** automatable:
+Dashboard steps that are **not** automatable:
 
 1. ~~Authentication → Providers → enable Anonymous Sign-ins.~~ **Done.**
-2. ~~Configure magic-link email auth for researcher login.~~ **No longer needed** — Phase 3
-   replaced magic-link with email + password (`Authentication → Users → Add user`), removing the
-   one part of the login flow that email delivery had broken twice.
-3. Pre-populate the `researchers` allowlist with your team's real emails, and create their accounts
-   directly in the dashboard (Authentication → Users → Add user, with a real email + password).
-   One real address is already present and account-linked.
-4. ~~Fix I1 before enabling any AUDIO_RECORD item.~~ **Done** — migration 0007, verified in
-   [PHASE_3_REPORT.md](PHASE_3_REPORT.md) §4.2.
-5. Enable **Leaked Password Protection** (Authentication → Policies) — newly relevant now that
-   researcher accounts have real passwords; see [PHASE_3_REPORT.md](PHASE_3_REPORT.md) §4.9/§9.4.
-6. **Deploy** to Vercel or Netlify (free tier) — see §Deployment below. Not done as of this report;
-   handed off to the researcher.
+2. Pre-populate the `researchers` allowlist with your team's real emails, and create their
+   accounts directly in the dashboard (Authentication → Users → Add user). Two accounts are
+   present and linked.
+3. **Two rater accounts are required** if you intend to report inter-rater agreement — the
+   second-rating queue only shows a rater recordings someone *else* rated, and a database
+   constraint refuses a second rating from the same person.
 
 ## Migrations
 
-`supabase/migrations/` holds nine files, applied in order:
+`supabase/migrations/` holds 27 files, applied in order. The early ones are summarised; the
+recent ones matter most for anyone reading the current schema.
 
 | File | Contents |
 |---|---|
-| `0001_schema.sql` | Tables, versioned item bank, rating-propagation trigger, `ml_export_v1` |
-| `0002_rls_policies.sql` | Row-Level Security for anonymous participants and allowlisted researchers |
-| `0003_phase0_fixes.sql` | Circular-FK removal, dual latency anchors, answer-key views, storage bucket + policies, atomic `submit_session()` RPC, indexes |
-| `0004_phase0_defect_fixes.sql` | Fixes F1–F7; adds the item-audio bucket, server-issued participant codes (`start_session()`), and paper-consent linkage |
-| `0005_hardening.sql` | Fixes G1–G3, G6–G8 and a NULL-answer-key scoring hazard; adds referential integrity to the paper-consent join key |
-| `0006_versioning_and_h1.sql` | Closes H1 (PUBLIC grant on the trigger functions); adds atomic `save_item_version()`; consolidates `sessions`' two SELECT policies into one |
-| `0007_i1_fix.sql` | Closes I1 (missing SELECT policy on `badsq-audio` broke every participant audio upload via `INSERT...RETURNING`); fixes both `auth_rls_initplan` warnings; adds `responses.selection_change_count` |
-| `0008_reliability_subsample.sql` | Automatic random reliability-subsample assignment (20%, `reliability_subsample_rate()`) at submission time, replacing rater-chosen manual-only assignment; rewrites `submit_session()`'s guard clause (verified behaviorally equivalent) |
-| `0009_j1_fix.sql` | Closes J1: adds pinned `search_path = public` to `reliability_subsample_rate()`, restoring search_path hygiene across all public functions |
+| `0001`–`0009` | Base schema, RLS, defect fixes F1–J1, atomic `submit_session()`, item versioning, automatic reliability subsampling. See the phase reports. |
+| `0010_stop_binary_audio_rating.sql` | Stops a human audio rating propagating into `responses.is_correct` |
+| `0011_background_consent_intros_export.sql` | Background/consent capture, domain intros, `full_export_v1` |
+| `0012_stop_all_inline_scoring.sql` | **No response is scored, for any format.** `is_correct` is always NULL |
+| `0013`–`0015` | New response formats, audio-rating export, scoring scope, Domain 3 typed responses |
+| `0016_domain_renumber_and_content_revision.sql` | **Domain renumbering** — Short-term Memory 3→1, Rhyme/Confusion 4→3, Spelling 1→4. Older documents use the old numbers |
+| `0017`–`0020` | Practice answer key for demo items, Domain 1 intros, practice items, replayability normalisation |
+| `0021_audio_verdict_unclear.sql` | Tri-state audio verdict: correct / incorrect / **unclear** |
+| `0022_participant_summary_view.sql` | `participant_summary_v1` — one row per participant |
+| `0023_option_display_order_and_export_cleanup.sql` | `item_options.display_order`; fixes a live defect that scrambled the 3.2 and SR scales |
+| `0024_retire_subdomain_intro_screens.sql` | Retires 17 subdomain intro screens via `active` (text preserved) |
+| `0025_export_completeness_and_timing_integrity.sql` | Answer key + option text in the export; `client_time_origin_ms`; one consent row per participant; one correct option per item; drops `ml_export_v1`/`ml_snapshots` |
+| `0026_second_rater_path.sql` | `secondary_verdict`, distinct-rater constraint, drops the misleading `agreement` column |
+| `0027_audio_retention_90_days.sql` | Audio destroyed 90 days after upload |
 
-All nine apply cleanly against Postgres 17.6. Apply with `supabase migration up`, or paste
-each file into the SQL editor in order.
+Apply with `supabase migration up`, or paste each file into the SQL editor in order.
 
 ### Participant codes
 
 Sessions are opened with the `start_session()` RPC, never by inserting a `sessions` row directly.
 It returns a `BADSQ-XXXX-XXXX` code (alphabet excludes I/O/0/1 because it is hand-transcribed)
 which the supervising teacher writes onto the paper consent form. `submit_session()` takes the
-code from the session row and **ignores any code in the client payload** — that is verified by a
-tamper assertion in the suite.
+code from the session row and **ignores any code in the client payload**.
+
+### Resume, and why the window is short
+
+A local draft in IndexedDB lets a participant resume on the same device after a crash, a reload,
+or iOS Safari evicting the page. It expires after **3 minutes of inactivity** and then starts a
+fresh session silently.
+
+That is deliberately short. The identity re-check on the resume prompt asks for class and gender,
+which cannot distinguish two students in a room that is one class and one gender — the common
+case here. Expiry, not the check, is what stops a device handed to the next student from offering
+them the previous student's session. The cost is real: an interruption lasting more than three
+minutes loses the session and forces a full restart.
 
 ## Verification
 
-Three checks, all re-runnable, covering different layers:
-
 ```bash
 node scripts/verify-security.mjs     # real HTTP as the anon role (30 assertions)
+npm run typecheck && npm run lint && npm run build
 ```
 
 ```
-scripts/verify_security.sql          # RLS/policy layer via role impersonation (84 assertions)
+scripts/check_view_drift.sql         # standing release gate — run before every deploy
 ```
 
-```
-scripts/check_view_drift.sql         # standing release gate: every view's output columns must
-                                      # resolve to a real base column, or be explicitly allowlisted
-```
+**`check_view_drift.sql` is current and passing.** Every view output column must resolve to a
+real base column or be explicitly allowlisted; the allowlist carries 75 reviewed entries and the
+gate returns zero unexplained drift. It is what stands between a future base-column rename and a
+third silent recurrence of the defect that broke `ml_export_v1` and then `public_items`.
 
-Run the SQL suite as `postgres` in the Supabase SQL editor. It rebuilds its own fixtures,
-writes results to `verify.results`, and tears down cleanly. Latest recorded outcome after
-migration 0009: **84 assertions (all 15 parts), 84 passed, 0 failed** and **30 HTTP assertions,
-30 passed, 0 failed** — see [PHASE_5_AUDIT_REPORT.md](PHASE_5_AUDIT_REPORT.md) for full independent
-verification details, the live browser resume & dual latency test report, and the secret scan. Run
-`check_view_drift.sql` before every deploy — it is what stands between a future base-column
-rename and a third silent recurrence of the defect that broke `ml_export_v1` (0003) and then
-`public_items` (0004).
-
-**The SQL suite's storage checks were rewritten in Phase 3** specifically because they didn't
-catch I1: they tested a bare `INSERT` where the real failure only shows up on `INSERT ...
-RETURNING` (see [PHASE_2_REPORT.md](PHASE_2_REPORT.md) §6 and [PHASE_3_REPORT.md](PHASE_3_REPORT.md)
-§4.5). Every storage assertion now uses `RETURNING`. `verify-security.mjs`'s storage checks were
-left as-is — they only ever tested anon-key denial, never a signed-in participant's own upload, so
-they never had this particular blind spot.
+> ⚠️ **`scripts/verify_security.sql` is STALE and currently fails for correct reasons.**
+> It was written against pre-`0010`/`0012` behaviour and still asserts that a human audio rating
+> propagates into `responses.is_correct`, and that responses are scored inline — both of which
+> were deliberately removed. Its failures are therefore expected, which means a *real* failure
+> would be indistinguishable from the backlog. Do not treat a failing run as evidence of a
+> security problem, and do not treat a passing assertion count from an older report as current.
+> The README previously claimed "84 assertions, 84 passed"; that is no longer reproducible.
+> Rewriting it against the current contracts is an open task.
 
 ## Deployment
 
-Static SPA, zero server-side config needed — routing is hash-based (`#/admin`, `#/test`), so
-there's no history-API rewrite rule to set up on either platform.
+Static SPA, zero server-side config — routing is hash-based (`#/admin`, `#/test`), so there is no
+history-API rewrite rule to set up.
 
-1. Push this repo to GitHub (already done).
-2. Import the repo into Vercel or Netlify. Framework preset: Vite (auto-detected). Build command:
-   `npm run build`. Output directory: `dist`.
-3. In the platform's dashboard (never in a committed file), set:
-   - `VITE_SUPABASE_URL`
-   - `VITE_SUPABASE_PUBLISHABLE_KEY`
-   - `VITE_SUPABASE_AUDIO_BUCKET` (optional, defaults to `badsq-audio`)
+1. Import the repo into Vercel or Netlify. Framework preset: Vite. Build: `npm run build`.
+   Output: `dist`.
+2. In the platform dashboard (never in a committed file), set `VITE_SUPABASE_URL`,
+   `VITE_SUPABASE_PUBLISHABLE_KEY`, and optionally `VITE_SUPABASE_AUDIO_BUCKET`.
+3. `vercel.json` / `netlify.toml` set response headers appropriate to an app collecting data from
+   minors: `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`,
+   `Referrer-Policy: no-referrer`, a `Permissions-Policy` allowing the microphone only for this
+   origin, and HSTS.
+4. **Microphone access requires HTTPS** (or `localhost`). Both platforms serve HTTPS by default.
 
-   Use the same real values from your local `.env` — not the placeholders in `.env.example`.
-4. Deploy. `vercel.json` / `netlify.toml` are included — neither sets up routing (the hash router
-   needs none), they only add response headers appropriate for an app collecting data from minors:
-   `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`,
-   a `Permissions-Policy` that allows the microphone only for this origin (needed for
-   `AUDIO_RECORD` items) and denies camera/geolocation outright, and HSTS.
-5. **Microphone access requires HTTPS** (or `localhost`) — this is a browser security rule, not
-   configurable. Both platforms serve HTTPS by default, so this is automatic once deployed; the
-   one way to break it is testing a phone against a laptop dev server over a plain
-   `http://<lan-ip>:5173` address instead of the deployed URL.
-6. Once live, test on a real iPhone (Safari) and a real Android phone (Chrome) as a participant —
-   see [PHASE_4_REPORT.md](PHASE_4_REPORT.md) §9.2. This is the first real test of iOS's MP4/AAC
-   audio path and real microphone hardware this project has ever been able to run; every prior
-   phase's headless-Chromium testing correctly declined to fake this instead of verifying it.
+## Data export
+
+Two CSVs from the admin panel's Health view, over the same data at different grains:
+
+- **Full export** — one row per response. Self-sufficient for analysis: participant background,
+  consent answers, item metadata, the response, **the answer key** (`correct_answer` for typed
+  and spoken items, `correct_option_key`/`correct_option_text` for choice formats), the option
+  text the participant actually saw, both human audio verdicts, both latency anchors, and device
+  context. Audio links in it expire after 30 days.
+- **Participant summary** — one row per participant, wide. Demographics, session duration, audio
+  verdict tallies, per-subdomain aggregates, and then every item's answer, option text, verdict
+  and latency on that participant's own row, for visualisation.
+
+Timing note for analysis: `*_client_ts` values come from `performance.now()`, which restarts at
+zero on every page load. Add `client_time_origin_ms` to get absolute time. A change of that value
+within one session means the participant reloaded.
 
 ## Scripts
 
@@ -162,24 +179,24 @@ there's no history-API rewrite rule to set up on either platform.
 
 ```
 src/
-  lib/supabaseClient.ts        Supabase client, env config, anonymous + researcher password auth
-  lib/itemBank.ts              Item bank data access: versioning via save_item_version() RPC
+  lib/supabaseClient.ts        Supabase client, anonymous + researcher password auth
+  lib/itemBank.ts              Item bank access: versioning via save_item_version() RPC
   lib/itemValidation.ts        Pure activation-guard logic (no I/O)
-  lib/media.ts                 Shared audio-storage helpers: signed URLs, uploads, MIME detection
-  lib/localDraft.ts            IndexedDB resume draft, keyed by session UUID
-  lib/adminData.ts             Data access for RatingQueue / ParticipantsView / HealthView
-  components/TestRunner.tsx    Participant flow orchestrator: intake, sequencing, submit, resume
+  lib/media.ts                 Audio storage helpers: signed URLs, uploads, MIME detection
+  lib/localDraft.ts            IndexedDB resume draft, staleness, singleton key
+  lib/errors.ts                Error-message extraction (Supabase returns plain objects, not Errors)
+  lib/adminData.ts             Admin data access: rating, participants, health, retention, exports
+  components/TestRunner.tsx    Participant flow: intake, sequencing, audio gating, submit, resume
   components/testrunner.css    Plain CSS for the participant flow — no component library
-  components/responses/        The six response formats (MCQ/BINARY/TRI/LIKERT/NUMERIC/AUDIO)
+  components/responses/        The eight response formats
   admin/AuthGate.tsx           Email + password sign-in + allowlist resolution
   admin/AdminShell.tsx         Identity banner, sign out, nav
   admin/ItemBankEditor.tsx     List/filter/create/edit/soft-delete, versioning, audio upload
-  admin/RatingQueue.tsx        Human rating of AUDIO_RECORD responses
-  admin/ParticipantsView.tsx   Read-only participant roster
-  admin/HealthView.tsx         Operational summary counts
-  admin.css                    Plain CSS for the admin panel — no component library
-  types/database.types.ts      Generated from the live schema
-public/fonts/                  Self-hosted Unicode Bangla font
-scripts/                       Verification suites + the view-drift release gate
-supabase/migrations/           0001, 0002, 0003, 0004, 0005, 0006, 0007, 0008, 0009
+  admin/RatingQueue.tsx        Audio rating, plus the blind second-rating pass
+  admin/RecordingCard.tsx      One recording, in normal or blind mode
+  admin/ParticipantsView.tsx   Participant roster and their recordings
+  admin/HealthView.tsx         Operational counts, audio retention, CSV exports
+  types/database.types.ts      Generated from the live schema — regenerate, never hand-edit
+scripts/                       Verification suites, the view-drift gate, participant-data reset
+supabase/migrations/           0001 … 0027
 ```

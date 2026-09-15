@@ -11,7 +11,7 @@ detail, this document states the behaviour, not the code.
 ## 0. Status of this document, and how to read its claims
 
 This documentation was written by reading the repository that builds and runs the instrument:
-the database migrations (0001–0024), the participant-facing application source, the researcher
+the database migrations (0001–0027), the participant-facing application source, the researcher
 admin panel, the two verification suites, the five phase reports, and
 `BADSQ_Technical_Design_Draft_v1.md`. Where the code and the design draft disagree, **the code
 is treated as the truth** and the divergence is stated.
@@ -32,9 +32,15 @@ Two things this document deliberately does **not** do:
 2. It does not present the instrument as finished or validated. §9 is the honest section, and
    it is long.
 
-Counts in this document were taken from the live production database on **2026-09-15**. The item
-bank is editable by researchers through the admin panel, so counts can change; the queries that
-produce them are trivial to re-run.
+Counts in this document were taken from the live production database, item-bank figures on
+**2026-09-15** and re-checked on **2026-09-16**. The item bank is editable by researchers through
+the admin panel, so counts can change; the queries that produce them are trivial to re-run.
+
+**Revised 2026-09-16**, after a three-device pilot (Android/Chrome, iPhone/Safari, Windows/Edge)
+and a review of the exported files. Four things changed materially: the export now carries the
+answer key and option text (§7), a blind second-rating path now exists so inter-rater agreement
+is collectable (§4.6), audio retention is now deletion at 90 days (§6.4), and one earlier claim
+about missing answer keys was **wrong and is corrected in §4.4**.
 
 ---
 
@@ -91,7 +97,7 @@ measure as a limitation to be stated; it is stated here in §9.
 **[verified]** live item bank, 2026-09-15. 93 active items total: 71 domain items, 6 criterion
 items, and 16 demonstration items (one per subdomain, never analysed).
 
-| Domain | Name | Subdomain | Items | Response format | Answer key in item bank? |
+| Domain | Name | Subdomain | Items | Response format | Answer key (see §4.4) |
 |---|---|---|---|---|---|
 | 1 | Short-term Memory | 1.1 Digit Span Forward | 3 | on-screen numeric keypad | yes |
 | | | 1.2 Digit Span Backward | 3 | on-screen numeric keypad | yes |
@@ -101,12 +107,12 @@ items, and 16 demonstration items (one per subdomain, never analysed).
 | | | 2.2 Pseudoword Judgment | 3 | binary tap (match / no match) | yes |
 | | | 2.3 Syllable Segmentation | 2 | on-screen numeric keypad | yes |
 | | | 2.4 Blending | 3 | **spoken, audio-recorded** | yes |
-| | | 2.5 Onset/Coda Matching | 3 | 4-option multiple choice | **no** |
+| | | 2.5 Onset/Coda Matching | 3 | 4-option multiple choice | yes (on the option) |
 | | | 2.6 Substitution | 1 | **spoken, audio-recorded** | yes |
-| 3 | Rhyme and Confusion | 3.1 Rhyme Judgment | 8 | binary tap (yes / no) | **no** |
+| 3 | Rhyme and Confusion | 3.1 Rhyme Judgment | 8 | binary tap (yes / no) | yes (on the option) |
 | | | 3.2 Confusion Self-report | 8 | 5-point Likert | n/a (self-report) |
-| 4 | Spelling and Orthographic Processing | 4.1 Multiple Choice | 10 | 4-option multiple choice | **no** |
-| | | 4.2 Flash Judgment | 8 | binary tap after 1500 ms exposure | **no** |
+| 4 | Spelling and Orthographic Processing | 4.1 Multiple Choice | 10 | 4-option multiple choice | yes (on the option) |
+| | | 4.2 Flash Judgment | 8 | binary tap after 1500 ms exposure | yes (on the option) |
 | 5 | Whole-word Processing | 5.1 Spoonerisms | 5 | **spoken, audio-recorded** | yes |
 | | | 5.2 Jumbled-sentence Reading | 5 | **spoken, audio-recorded** | yes |
 | criterion | Self-report (SR) | — | 6 | 3-point tap (yes / a little / no) | n/a (self-report) |
@@ -131,9 +137,10 @@ Every subdomain except the criterion block is preceded by one demonstration item
 ending in `.0` (`1.1.0`, `4.2.0`, and so on). **[verified]**:
 
 - All 16 demonstration items carry instruction audio.
-- Demonstration responses **are recorded in the database** but are flagged as practice and
-  not-scored, and should be excluded from analysis. They are not silently dropped; they appear in
-  the export and must be filtered on item codes ending `.0` or on the item-bank practice flag.
+- Demonstration responses are **never stored**. The submission routine skips every item whose
+  code ends `.0`, so they reach neither the database nor the export and need no filtering during
+  analysis. **[verified]** — each pilot participant produced exactly 77 response rows against 93
+  active items.
 - Demonstration items are the **only** items for which the correct answer is exposed to the
   participant's browser, so the demonstration can show the child what a right answer looks like.
   For every scored item, the answer key is withheld from the client entirely.
@@ -454,19 +461,26 @@ has not been tested.
 (migration `0012_stop_all_inline_scoring`) at the principal researcher's instruction: the
 platform collects raw data and does not judge it.
 
-What the item bank still holds is an **answer key** on 34 of the 77 presented items — the digit
-and letter spans, the phonological items with a determinate answer, and the spoken items. These
-keys are used for two things only: showing the right answer during a demonstration item, and
-giving the human rater a reference when they listen to a recording. **They are not applied to
-participant responses by any code.**
+What the item bank still holds is an **answer key**, on every one of the 63 presented items that
+has a determinate answer. It is stored in two places depending on the response format, which is
+worth knowing because it is easy to look in one place and conclude it is missing:
 
-43 of the 77 presented items have **no answer key at all**: subdomains 2.5, 3.1, 4.1, 4.2 and the
-criterion block. For 3.2 and SR that is correct — they are self-report and have no right answer.
-For **2.5 Onset/Coda Matching, 3.1 Rhyme Judgment, 4.1 Multiple Choice and 4.2 Flash Judgment
-(29 items) there is a determinate correct answer and the item bank does not record it.** Scoring
-those 29 items requires the source question paper; it cannot be done from the exported data
-alone. This is a real gap, not a design choice — it is recorded as such in §9 and in
-`DOCUMENTATION_NOTES.md`.
+| Where the key lives | Which items |
+|---|---|
+| `items.correct_answer` | Typed and spoken formats — the digit and letter spans (1.1–1.4), syllable segmentation (2.3), and every audio-recorded item (2.1, 2.4, 2.6, 5.1, 5.2) |
+| `item_options.is_correct` | Choice formats — 2.2, 2.5, 3.1, 4.1, 4.2 |
+
+The 14 items with **no key** are subdomain 3.2 (8 items) and the criterion block (6 items), which
+is correct: both are self-report and have no right answer.
+
+**No key is ever applied to a participant response by this platform.** Keys are used only to show
+the right answer during a demonstration item, to give the human rater a reference, and — since
+2026-09-16 — to populate the export so that scoring can be done downstream (§7).
+
+> **Correction.** An earlier revision of this document stated that 29 items with determinate
+> answers had no recorded key. That was wrong: it had only checked `items.correct_answer` and
+> missed that the choice formats carry theirs in `item_options.is_correct`. The keys existed
+> throughout; what was genuinely missing was their appearance in the export, which is now fixed.
 
 ### 4.5 Human rating of spoken responses
 
@@ -503,13 +517,28 @@ made by the database at submission, before anyone has listened, the subsample is
 sample of recordings and kappa computed on it is interpretable. This was fixed deliberately
 (migration `0008`) and is documented as a phase deliverable.
 
-**However — and this is a serious open item — there is no second-rater interface.** The database
-has columns for a primary and a secondary rating and a generated agreement column, and the
-subsample flag is being assigned correctly. But the admin panel provides **one** rating control
-per recording, which writes the primary rating. **[verified]** by reading the rating queue:
-nothing in the user interface writes a secondary rating. **As the system stands, Cohen's kappa
-cannot be computed, because the second rating has nowhere to go.** The sampling is correct and
-the collection mechanism is missing. See §9.
+**The second rating is collected blind** (migration `0026`, 2026-09-16). Earlier revisions of
+this document recorded that no second-rater interface existed and that kappa was therefore
+uncomputable; that gap has been closed.
+
+The admin panel has a second-rating queue showing a rater only those recordings that are in the
+subsample, have already been rated, were rated by **someone else**, and have not yet been
+second-rated. The distinct-rater rule is also a database constraint, not just a filter — a
+coefficient of agreement between a person and themselves is not agreement.
+
+**The blinding is deliberate and load-bearing.** The query behind that queue does not retrieve the
+first rater's verdict, their notes, or the participant's code, and the interface hides the note
+editor and the subsample toggle. A second rater who can see the first judgement is anchored by it,
+and the resulting coefficient then measures compliance with a colleague rather than agreement
+about the audio.
+
+Both verdicts reach the export as `audio_review_verdict` and `audio_second_verdict`, over the same
+three categories. **The platform does not compute agreement** — that is an analysis step, and
+three-category agreement is yours to compute from those two columns.
+
+One consequence to plan around: audio is destroyed 90 days after upload (§6.4), so **both rating
+passes must be completed within 90 days of a participant's session.** A recording deleted before
+it is rated is data lost permanently, because the rating is the only thing that outlives the file.
 
 ---
 
@@ -722,32 +751,43 @@ checklist item.
   participant's IP address is disclosed to a third party. **[verified]**, and it should be
   preserved through any future change.
 
-### 6.4 Audio retention — an unresolved commitment
+### 6.4 Audio retention — 90 days
 
 Audio recordings of children's voices are the most sensitive data the study holds.
 
-The original design, and the schema, are built around **deletion after the study**: the
-`audio_recordings` table is deliberately separated from the response table precisely so that a
-recording can be deleted while the derived rating survives, and it carries
-`scheduled_deletion_at` and `deleted_at` columns to schedule and audit that deletion. The schema
-comment describes this as being "per the parental consent commitment."
+**Participant audio is destroyed 90 days after upload.** The schema was built for this from the
+start: `audio_recordings` is a separate table from `responses` precisely so a recording can be
+destroyed while the rating, the latency and the item linkage survive it. Every recording carries
+the date its audio must go.
 
-**The retention policy has since been changed to indefinite retention**, at the principal
-researcher's instruction during development — recordings and datasets are kept without automatic
-expiry, and the previous 90-day expiry on audio access links was removed in favour of a long
-horizon.
+This policy has moved twice and the record should say so plainly. The original design committed
+to deletion after the study but never implemented it — `scheduled_deletion_at` and `deleted_at`
+existed from migration `0001` and were written by no code. Retention was then changed to
+indefinite during development. It has now been set to **90 days from upload** by decision of the
+principal researcher (migration `0027`, 2026-09-16), and this time it is implemented.
 
-**These two things must be reconciled before collection.** **[verified]**:
+What that means in practice, stated precisely:
 
-- `scheduled_deletion_at` and `deleted_at` are **never written by any code**. There is no
-  deletion mechanism in the platform — no scheduled job, no admin control, no procedure.
-- There are 60 recordings and 3 orphaned audio objects in storage that no recording row points
-  to.
+- The **audio file** is destroyed. The **row** is kept forever — the human verdict, the response
+  latency and the item it answers are the research data and outlive the recording by design.
+- Deletion is performed from the admin panel, through the Storage API. It is **not** automatic:
+  nothing runs on a schedule, so it happens only when a researcher does it. This is a deliberate
+  choice — destroying a child's voice recording should be an act someone performs — but it means
+  the commitment depends on the procedure being followed, and it belongs in the project calendar.
+- Exported audio links expire after **30 days**, deliberately shorter than the recording's life so
+  a link can never outlive the file.
 
-If the parental consent form promises deletion after the study, the platform cannot currently
-honour it and there is no implementation to point at. **If the consent form has been revised to
-state indefinite retention, that revision needs to be the version parents actually sign.** This
-is the single most important open ethics item in this documentation.
+**The operational consequence is significant and easy to under-estimate.** Both rating passes —
+the primary verdict and, for the reliability subsample, the independent second rating — must be
+finished within 90 days of a participant's session. A recording deleted before it is rated is
+data lost permanently, because the rating is the only thing that survives the file. The admin
+panel warns specifically about recordings falling due that are still unrated or still missing
+their second rating.
+
+**The consent form must match.** Whatever parents sign has to state 90-day deletion of audio and
+indefinite retention of the derived data. That reconciliation is a research-team task; the
+platform now behaves as described, but the repository does not contain the consent form and
+cannot confirm the two agree.
 
 ---
 
@@ -799,21 +839,25 @@ Neither file contains identifying information.
   responses given under degraded administration conditions and are worth inspecting before
   analysis.
 
-### 7.3 Three things the export does **not** contain
+### 7.3 What the export contains, and the one thing it does not
 
-These are limitations of the current export, stated plainly:
+Two gaps recorded in earlier revisions of this document have been closed (migration `0025`,
+2026-09-16). The response-level file now carries:
 
-1. **No answer key.** The export carries what the child chose but not what the right answer was.
-   For the 34 items that have a key in the item bank, scoring requires joining the export back to
-   the item bank. For the **29 items that have no key at all** (subdomains 2.5, 3.1, 4.1, 4.2),
-   scoring requires the original question paper. Adding the key to the export was identified
-   during development as a small and worthwhile change; **it has not been made**.
-2. **No option text.** Only the option key is exported. For subdomains 2.5 and 4.1, whose keys are
-   `A`–`D`, this means **the exported responses for those 13 items are uninterpretable from the
-   CSV alone** — you cannot tell what `B` was. The item bank must be exported alongside.
-3. **No audio files.** The export carries the storage path and metadata for each recording, not
-   the audio. Recordings are retrieved separately through time-limited signed links from the
-   admin panel.
+- **The answer key** — `correct_answer` for typed and spoken items, `correct_option_key` and
+  `correct_option_text` for the choice formats. Every item with a determinate answer has one, so
+  the file can be scored without returning to the database or the question paper.
+- **The option text the participant actually saw** (`selected_option_text`). This matters most
+  for subdomains 2.5 and 4.1, whose option keys are bare `A`–`D`: those 13 items' responses were
+  previously uninterpretable from the CSV alone, because nothing recorded what `B` was.
+- **`is_scored`**, so analysis-excluded items filter without a join.
+
+Still not in the file, by design:
+
+- **The audio itself.** A CSV is text. The export carries each recording's storage path and a
+  signed link, which expires after **30 days** — deliberately shorter than the 90-day life of the
+  recording, so a link can never outlive the file it points at. Fresh links can be regenerated by
+  re-exporting.
 
 ### 7.4 Unit of analysis and the derived layer
 
@@ -869,8 +913,9 @@ grid contents.
 
 ### 8.3 What a replicator must supply that this repository does not
 
-The Development Report (§2), the classification rule (§5.5), the analysis pipeline (§7.4), and an
-answer key for the 29 items that lack one (§4.4).
+The Development Report (§2), the classification rule (§5.5), and the analysis pipeline (§7.4).
+The answer key is present in the item bank and now in the export (§4.4), so a replicator does not
+need to reconstruct it.
 
 ---
 
@@ -940,24 +985,25 @@ affects existing pilot data.
 The repository's own verification is honest about its blind spots, and they are worth restating
 for a research audience:
 
-- **All automated browser testing was done in headless Chromium with fake media devices.** Not
-  "tested on devices" — tested in a simulated browser with a synthetic microphone.
-- **The iOS Safari audio path has never been exercised on real hardware.** iOS records in a
-  different container/codec from Android and desktop Chrome. The platform detects format at
-  runtime rather than assuming one, but **whether an iPhone recording uploads correctly, and
-  whether a rater can play it back, has never been verified on an actual iPhone.** Every phase
-  report says so explicitly rather than claiming otherwise.
-- **Real microphone hardware has never been used** in any automated test.
-- **The security verification suite is stale.** It was written against the platform's behaviour
-  before the scoring changes of migrations 0010–0024 and now asserts contracts the system
-  deliberately no longer honours — in particular it still asserts that a human rating propagates
-  into the response row, which was intentionally disabled. It will report failures that are not
-  defects, which is the worst state for a test suite to be in: it cannot be trusted either way
-  until it is updated.
-- **The release gate that guards against export-view corruption currently reports 72 failures.**
-  All 72 appear to be legitimate column aliases introduced by later migrations and never added to
-  the gate's allowlist — but because the gate is failing wholesale, **it would not distinguish a
-  real export-column regression from the existing noise.** The protection is effectively off.
+- **Automated browser testing is done in headless Chromium with fake media devices.** Not "tested
+  on devices" — a simulated browser with a synthetic microphone. That remains true of the
+  automated suites.
+- **The instrument has now been run manually end to end on three real devices** (2026-09-16):
+  Android/Chrome, **iPhone/Safari**, and Windows/Edge. Each completed all 77 items with audio
+  recording, latency capture and atomic submission working, and the recordings played back in the
+  rating queue. This closes the largest previously-untested path — iOS records in a different
+  container and codec from Chrome, and that had never been exercised on real hardware. It is
+  **three sessions by one adult tester**, not a usability pilot with children.
+- **Real microphone hardware is still not used in any automated test**, so a regression there
+  would only be caught by another manual run.
+- **The security verification suite is stale.** It was written against behaviour predating
+  migrations `0010` and `0012` and still asserts that a human rating propagates into the response
+  row and that responses are scored inline — both deliberately removed. It reports failures that
+  are not defects, which is the worst state for a test suite: it cannot be trusted either way
+  until rewritten. **This is still open.**
+- ~~The release gate reports 72 failures.~~ **Closed.** Its allowlist had one entry against 72
+  live legitimate aliases, so it failed wholesale and could not distinguish a real regression from
+  its own backlog. Regenerated against the schema; it now passes with zero unexplained drift.
 
 ### 9.6 Device and environment constraints
 
@@ -992,28 +1038,36 @@ for a research audience:
 - **"1500 ms is an arbitrary exposure."** The value was set by instruction during development and
   its empirical basis is **[not documented]**.
 - **"One item cannot be a subscale."** Subdomain 2.6 has one scored item (§1.3).
-- **"Your unscored items have no key."** 29 items with determinate answers have no recorded
-  answer key (§4.4).
+- **"Your criterion base rate and domain weights are inherited, not estimated here."** §9.1 —
+  expect to have to justify using them at all before you have your own data.
 - **"How do you know a child heard the stimulus?"** You do not, directly. You know how many times
   they played it and whether playback failed.
 
 ### 9.8 Summary of open items before data collection
 
-1. Recover or write the Development Report (§2).
-2. Reconcile the audio-retention commitment in the parental consent form with the indefinite
-   retention now in force, and with the absence of any deletion mechanism (§6.4).
-3. Decide and state the post-submission withdrawal policy (§6.1).
-4. Build a second-rater path, or accept that Cohen's kappa cannot be reported (§4.6).
-5. Fix the consent-record provenance and duplication hazard (§5.2).
-6. Supply the answer key for the 29 items lacking one, and add the key to the export (§4.4, §7.3).
-7. Confirm and record ethics approval (§6.2).
-8. Test the iOS audio path on real hardware before any iPhone is used for collection (§9.5).
-9. Update the stale verification suite and clear the release gate's 72 findings, so both can
-   again detect a real regression (§9.5).
-10. Run a small timing and usability pilot to establish real session duration and fatigue
-    exposure (§3.7).
-11. Discard pilot responses for subdomain 3.2 and the SR block collected before the option-order
-    fix (§9.3).
+Still open, and all of them research-team decisions rather than software work:
+
+1. **Recover or write the Development Report** (§2). Without it the instrument's theoretical
+   grounding, the criterion rule and the domain weights cannot be documented at all.
+2. **Make the consent form match the system** (§6.4): 90-day deletion of audio, indefinite
+   retention of the derived data. The repository does not contain the form and cannot check.
+3. **Decide and state the post-submission withdrawal policy** (§6.1). Full anonymity means there
+   is currently no route to withdraw after submitting.
+4. **Fix the consent-record provenance question** (§5.2) — Q1–Q3 are entered by the child
+   transcribing the parent's paper form, and nothing records which source a row came from. The
+   duplicate-row hazard itself is closed.
+5. **Confirm and record ethics approval** (§6.2).
+6. **Rewrite `scripts/verify_security.sql`** (§9.5). It asserts contracts the system deliberately
+   no longer honours, so it fails for correct reasons and cannot distinguish a real regression.
+7. **Run a timing and fatigue pilot** (§3.7). Session duration for real participants is still
+   unknown, and item order is fixed so fatigue is confounded with domain.
+
+Closed since the previous revision: the export now carries the answer key and option text; a
+blind second-rating path exists so inter-rater agreement is collectable; audio retention is
+implemented; the consent-record and answer-key row-doubling hazards are constrained; the
+view-drift release gate passes again; and the iOS audio path has now been exercised on real
+hardware (§9.5). Pilot data collected before the option-order fix has been deleted along with the
+rest of the pilot set.
 
 ---
 

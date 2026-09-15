@@ -8,6 +8,50 @@ invented, and the things found while writing that look like real problems.
 
 ---
 
+## 0. Status update — 2026-09-16
+
+This file was written on 2026-09-15. A three-device pilot (Android/Chrome, iPhone/Safari,
+Windows/Edge) and a review of the two exported CSVs closed most of §4 and **corrected one finding
+that was simply wrong**. Current status of everything recorded below:
+
+| § | Finding | Status |
+|---|---|---|
+| 4.1 | Consent records have no uniqueness constraint; a second row silently doubles every response row in both exports | **Closed** — partial unique index (0025). The same hazard existed on the new answer-key join and is constrained too |
+| 4.2 | `verify_security.sql` asserts the pre-0010/0012 contracts | **Still open.** Needs rewriting; it fails for correct reasons, which is the worst state for a suite |
+| 4.3 | View-drift gate reports 72 failures and is effectively off | **Closed** — allowlist regenerated to 75 reviewed entries; zero unexplained drift |
+| 4.4 | Cohen's kappa cannot be computed; no second-rater interface | **Closed** — blind second-rating pass (0026), distinct-rater CHECK, both verdicts in the export |
+| 4.5 | Audio-deletion commitment has no implementation | **Closed** — 90-day retention implemented (0027), deletion performed from HealthView through the Storage API. Manual by design; nothing runs on a schedule |
+| 4.6 | 29 items with determinate answers have no answer key | **WRONG — retracted.** See below |
+| 4.7 | Contaminated pilot data in 3.2 and SR (option-order defect) | **Moot** — all pilot data deleted before real collection |
+| 4.8 | 29 stuck sessions, 3 orphaned audio objects, `.env.example` | Sessions and objects cleared. The `.env.example` claim was also wrong and was retracted on 2026-09-15 — it holds proper placeholders |
+| 4.9 | `maxAudioPlays()` domain hardcoding; intentional SECURITY DEFINER views; fixed item order | Unchanged, all still true |
+
+### Retraction of §4.6
+
+The claim that 29 items with determinate answers had no recorded answer key was **incorrect**. It
+came from checking only `items.correct_answer` and missing that the choice formats (2.2, 2.5, 3.1,
+4.1, 4.2) store their key in `item_options.is_correct`. Every item with a determinate answer has
+always had one; only 3.2 and the SR block have none, which is correct because they are self-report.
+
+What was genuinely missing — and what made the original observation *feel* right — is that
+**neither key reached the export**, so the CSV could not be scored without going back to the
+database. That is fixed in 0025, which adds `correct_answer`, `correct_option_key`,
+`correct_option_text` and `selected_option_text`.
+
+### Found since, and fixed
+
+- **`performance.now()` restarts on page reload**, so a participant who resumed carried smaller
+  timestamps in the second half of their session than the first. Visible in the pilot: one
+  participant ran 1455 wall-clock seconds with a maximum `response_client_ts` of 750 s. Latencies
+  were unaffected but any elapsed-time derivation broke silently. `client_time_origin_ms` added.
+- **A stimulus anchor could move after the answer**, producing a −1665 ms latency on recomputation
+  in one pilot row. Anchors now freeze once answered.
+- **`selection_change_count` was a phantom column** — present since 0007, never written, exported
+  as a constant 0 on every response ever collected. Now actually counted.
+- **`ml_export_v1` / `ml_snapshots`** dropped as dead, superseded schema.
+
+---
+
 ## 1. What could not be documented, and why
 
 ### 1.1 The Development Report is missing — this is the largest gap

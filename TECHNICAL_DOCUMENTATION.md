@@ -235,9 +235,11 @@ convenience"); the shipped schema routes through `session_id`. Divergence, delib
 | `primary_rating` | boolean | YES | — | Two-state projection of `primary_verdict`. |
 | `primary_rater_id` | uuid | YES | — | FK → `researchers(id)`. |
 | `primary_rated_at` | timestamptz | YES | — | — |
-| `secondary_rating` / `_rater_id` / `_rated_at` | — | YES | — | **Schema exists; no UI writes them** **[verified]** — §8.6. |
-| `agreement` | boolean | YES | generated | `primary_rating IS NOT DISTINCT FROM secondary_rating`, STORED. Meaningless while secondary is never written. |
-| `scheduled_deletion_at` / `deleted_at` | timestamptz | YES | — | **Never written** **[verified]** — §12.8. |
+| `secondary_rating` / `_rater_id` / `_rated_at` | — | YES | — | Written by the blind second-rating pass (0026). CHECK: `secondary_rater_id <> primary_rater_id`. |
+| `secondary_verdict` | text | YES | — | Added 0026. CHECK ∈ (`correct`,`incorrect`,`unclear`). The authoritative second verdict. |
+| ~~`agreement`~~ | — | — | — | **Dropped in 0026.** It compared two booleans that are both NULL when a recording is unrated *or* unclear, so an entirely unrated pair evaluated `true`. Compute agreement from the two verdict columns instead. |
+| `scheduled_deletion_at` | timestamptz | YES | `now() + 90 days` | Added as a default in 0027. When the audio must be destroyed. |
+| `deleted_at` | timestamptz | YES | — | Stamped only when the Storage API confirms the file was removed. NULL = the file still exists. |
 | `notes` | text | YES | — | Added 0010. Free-text reviewer note. |
 | `primary_verdict` | text | YES | — | Added 0021. CHECK ∈ (`correct`,`incorrect`,`unclear`). **Authoritative verdict.** |
 
@@ -252,7 +254,7 @@ preserved; restore with `update domain_intros set active = true;`.
 
 ### 2.10 Analysis tables — all empty and unwritten
 
-`domain_score_results`, `criterion_classification`, `ml_snapshots` are created by 0001, carry RLS,
+`domain_score_results` and `criterion_classification` are created by 0001, carry RLS,
 and **no code reads or writes any of them** **[verified: 0 rows; no references in `src/`]**. They
 are placeholders for offline analysis. A maintainer should not assume a pipeline exists.
 
@@ -262,9 +264,9 @@ are placeholders for offline analysis. A maintainer should not assume a pipeline
 |---|---|---|
 | `public_items` | **off** (definer) | Participant-facing item read path. §3.2. |
 | `public_item_options` | **off** (definer) | Participant-facing options. §3.2. |
-| `full_export_v1` | **true** | Response-level CSV export. 43 columns. |
-| `participant_summary_v1` | **true** | One row per participant, ~72 columns (0022). |
-| `ml_export_v1` | (default) | Original 0001 export. **Unused by the app** **[verified]**; still exposes the retired `is_correct`/`scored_by`. |
+| `full_export_v1` | **true** | Response-level CSV export. **49 columns** after 0025/0026 — now carries the answer key (`correct_answer`, `correct_option_key`, `correct_option_text`), `selected_option_text`, `is_scored`, `client_time_origin_ms` and both audio verdicts. |
+| `participant_summary_v1` | **true** | Aggregates, one row per participant (0022). The *exported* summary is wider: `downloadParticipantSummaryCsv()` pivots per-item answers, option text, verdicts and latencies onto each row client-side, so an edited item bank changes the columns without a migration. |
+| ~~`ml_export_v1`~~ | — | **Dropped in 0025**, with `ml_snapshots`. Superseded by `full_export_v1`, referenced by no application code, and still exposing the retired `is_correct`/`scored_by` — a second, staler export view invites analysing the wrong one. |
 
 ### 2.12 Entity relationships
 
@@ -286,7 +288,6 @@ auth.users ──(trigger link_researcher_on_signup)──► researchers
 
 participants ◄── domain_score_results, criterion_classification   [both empty, unwritten]
 domain_intros — standalone, no FK except edited_by → researchers
-ml_snapshots  — standalone, unwritten
 ```
 
 ---
@@ -369,7 +370,7 @@ predicate doing the work.
 | `consent_records` | `consent_researcher_all` | ALL | `is_researcher()` | — |
 | `domain_intros` | `domain_intros_select_all` | SELECT | `active = true OR is_researcher()` | Participants see only live intros. |
 | `domain_intros` | `domain_intros_write_manager` / `_update_manager` | INSERT / UPDATE | `can_manage_items()` | — |
-| `domain_score_results`, `criterion_classification`, `ml_snapshots` | `*_researcher_all` | ALL | `is_researcher()` | Closes F3. |
+| `domain_score_results`, `criterion_classification` | `*_researcher_all` | ALL | `is_researcher()` | Closes F3. `ml_snapshots` carried the same policy until it was dropped in 0025. |
 
 **Participants can write nothing directly.** No table grants a participant INSERT or UPDATE except
 the legacy `participants_insert_own`. Every participant write goes through `start_session()` or
@@ -749,9 +750,20 @@ the study commits to reporting is not biased by which recordings a rater happene
 (`README.md` §Current phase). The RatingQueue checkbox is a manual **override** on that baseline,
 not the assignment mechanism.
 
-⚠️ **The second-rater half does not exist.** `secondary_rating`/`secondary_rater_id`/
-`secondary_rated_at` appear nowhere in `src/` except generated types **[verified]**. 11 recordings
-are flagged; 0 have a secondary rating. Kappa cannot currently be computed.
+**The second-rater half now exists** (0026). `RatingQueue` has a second-rating pass listing only
+recordings that are in the subsample, already primary-rated, rated by *someone else*, and not yet
+second-rated. The distinct-rater rule is also a CHECK constraint, not just a query filter.
+
+**The blinding is the point, and it lives in the query.** `listSecondRatingQueue()` deliberately
+does not select `primary_verdict`, `primary_rating`, `notes` or participant identity, and
+`RecordingCard`'s `mode="second"` hides the note editor and the subsample toggle. Those columns
+are readable by the role, so the blinding is a property of what the code asks for — anyone
+extending this must keep it that way, or the coefficient measures compliance with a colleague
+rather than agreement about the audio.
+
+Agreement itself is **not** computed here. Both verdicts reach `full_export_v1` as
+`audio_review_verdict` and `audio_second_verdict`, over the same three categories, and
+three-category agreement is an analysis step.
 
 ### 6.7 Admin views
 
@@ -804,9 +816,16 @@ minutes, totals, audio verdict tallies, then per-subdomain `answered` / `mean_la
 `replays`. Summaries per subdomain rather than one column per item, so the column set survives
 item-bank edits.
 
-`downloadFullExportCsv()` additionally mints a **signed URL per recording**, currently valid for
-**10 years** (`EXPORT_AUDIO_URL_EXPIRY_SECONDS`), reflecting a decision to retain data
-indefinitely. A signed URL always carries *some* expiry; there is no "never expires" option.
+`downloadFullExportCsv()` additionally mints a **signed URL per recording**, valid for **30 days**
+(`EXPORT_AUDIO_URL_EXPIRY_SECONDS`), reduced from a 10-year horizon when retention became 90-day
+deletion (0027). A link must never outlive the file it points at, and a shorter window also limits
+how long a leaked CSV remains a working bearer credential to a child's voice.
+
+**`downloadParticipantSummaryCsv()` builds a wider file than the view.** It fetches the aggregates
+from `participant_summary_v1` and pivots per-item answers, option text, audio verdicts and
+latencies onto each participant's row client-side — driven by the items present in the data, so an
+edited item bank changes the columns with no migration. It selects only the eight columns the
+pivot reads rather than all 49, which matters at 1000 participants × 77 responses.
 
 ---
 
@@ -1060,14 +1079,33 @@ shared outside the research team. The design draft and 0001 both describe `audio
 separated from `responses` specifically "so a recording can be **deleted post-study** (per the
 parental consent commitment) while the derived score persists."
 
-**State of that mechanism: it does not exist.**
-- `scheduled_deletion_at` and `deleted_at` are never written **[verified]**.
-- No deletion job, cron, or admin control exists anywhere in the repository **[verified]**.
-- A later decision moved retention to indefinite, and export links are now signed for **10 years**.
+**State of that mechanism: implemented as of 0027 (2026-09-16).** Audio is destroyed **90 days
+after upload**.
 
-A maintainer must treat this as an **open commitment with no implementation**. If the consent form
-still promises post-study deletion, the system cannot currently honour it, and the discrepancy
-needs resolving by the researcher — not silently in code.
+- `scheduled_deletion_at` defaults to `uploaded_at + 90 days`; pre-existing rows were backfilled
+  from their own upload time, not from the migration date.
+- Deletion runs from **HealthView**, via `deleteExpiredAudio()`. It goes through the **Storage
+  API**, not by deleting `storage.objects` rows — that is how this project produced orphaned blobs
+  before, and an orphaned blob is a file a parent was told no longer exists.
+- `deleted_at` is stamped **only** for rows whose file the API confirmed removed. A row marked
+  deleted while its file survives would report the commitment as kept when it is not.
+- The `audio_recordings` row is kept forever. The verdict, latency and item linkage are the
+  research data and outlive the audio by design — which is the whole reason this table is separate
+  from `responses`.
+
+**It is deliberately manual, and nothing runs on a schedule.** `pg_cron` and `pg_net` are
+available on the project but uninstalled; automating this would mean holding a privileged key
+inside the database of a study collecting minors' data. So the commitment depends on someone
+performing the step — it belongs in the project calendar, not only in code.
+
+⚠️ **The operational hazard this creates:** a recording deleted before it is rated is data lost
+permanently, and the reliability subsample now needs *two* passes, both inside 90 days. HealthView
+warns specifically about recordings falling due that are still unrated or missing their second
+rating.
+
+The consent form itself is not in the repository, so the code cannot confirm the two agree —
+matching the form to 90-day audio deletion plus indefinite retention of derived data remains a
+researcher task.
 
 ### 11.8 Known operational debt
 
