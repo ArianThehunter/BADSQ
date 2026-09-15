@@ -475,6 +475,41 @@ function triggerCsvDownload(rows: Record<string, unknown>[], filenamePrefix: str
 }
 
 /**
+ * The subset of full_export_v1 the wide pivot actually reads.
+ *
+ * Deliberately NOT fetchFullExportRows(): that returns all 45 columns
+ * including a ~500-character signed audio URL per recording. At a full study's
+ * scale (1000 participants x 77 responses = 77,000 rows) pulling every column
+ * into browser memory purely to read eight of them is a needless order of
+ * magnitude, on the one machine in the system with the least memory to spare.
+ */
+async function fetchSummaryPivotRows(): Promise<Record<string, unknown>[]> {
+  const columns = [
+    'anonymized_code',
+    'item_code',
+    'response_format',
+    'selected_option_key',
+    'selected_option_text',
+    'typed_value',
+    'audio_review_verdict',
+    'response_latency_from_first_ms',
+  ].join(',');
+
+  const rows: Record<string, unknown>[] = [];
+  for (let from = 0; ; from += EXPORT_PAGE_SIZE) {
+    const { data, error } = await supabase
+      .from('full_export_v1')
+      .select(columns)
+      .range(from, from + EXPORT_PAGE_SIZE - 1);
+    if (error) fail('Could not load the per-item answers', error);
+    if (!data || data.length === 0) break;
+    rows.push(...(data as unknown as Record<string, unknown>[]));
+    if (data.length < EXPORT_PAGE_SIZE) break;
+  }
+  return rows;
+}
+
+/**
  * Natural sort for item codes: 4.1.2 must come before 4.1.10, which a plain
  * string compare gets wrong. Non-numeric segments (the SR criterion block)
  * sort after numeric ones so the criterion items land at the end, as
@@ -557,7 +592,7 @@ export async function downloadParticipantSummaryCsv(): Promise<number> {
   }
   if (summaryRows.length === 0) return 0;
 
-  const responseRows = await fetchFullExportRows();
+  const responseRows = await fetchSummaryPivotRows();
 
   // Item catalogue, derived from the data itself.
   const formatByCode = new Map<string, string>();
