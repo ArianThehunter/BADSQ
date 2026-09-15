@@ -273,6 +273,20 @@ body.badsq-test-mode .error {
   background: linear-gradient(135deg, var(--tr-success), #2f9468);
 }
 
+/* De-emphasised variant. Used for "continue someone else's session" on the
+   resume prompt: still a full-size touch target, but visually clearly the
+   second choice, so the safe option is the one that reads as default. */
+.big-choice-button.secondary {
+  background: transparent;
+  color: var(--tr-accent-dark);
+  border: 2px solid var(--tr-accent);
+  box-shadow: none;
+}
+
+.big-choice-button.secondary:hover {
+  background: rgba(255, 255, 255, 0.5);
+}
+
 /* --------------------------------------------------------------- MCQ / TRI / BINARY / LIKERT */
 
 .option-grid {

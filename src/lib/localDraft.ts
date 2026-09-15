@@ -80,12 +80,48 @@ export type LocalDraft = {
   sessionId: string;
   assignedCode: string;
   startedAtMs: number;
+  /**
+   * Wall clock of the last write, stamped by saveDraft() itself so it cannot
+   * drift from reality no matter which caller persisted. Drives the staleness
+   * check below. Optional only for drafts written before this field existed --
+   * isDraftStale() falls back to startedAtMs for those.
+   */
+  updatedAtMs?: number;
   classGrade: 6 | 7 | 8 | null;
   background: BackgroundInfo;
   consent: ConsentAnswers;
   currentItemIndex: number;
   responses: Record<string, ResponseDraft>;
 };
+
+/**
+ * How long a draft stays resumable after its last write.
+ *
+ * A genuine interruption (dropped tab, locked screen, iOS Safari evicting a
+ * backgrounded page) is picked up again within a couple of minutes. A draft
+ * left behind by the *previous participant* on a shared device is almost
+ * always much older than this. Expiring on inactivity is what stops Student B
+ * from ever being offered Student A's session in the first place -- it closes
+ * the hole without relying on a child reading the resume prompt correctly.
+ *
+ * Measured from the last write, not from startedAtMs: a student interrupted at
+ * item 60 has a draft that STARTED 40 minutes ago but was touched seconds ago,
+ * and must still be resumable.
+ */
+export const DRAFT_STALE_AFTER_MS = 30 * 60 * 1000;
+
+/**
+ * True when a draft is too old to offer for resume. TestRunner discards these
+ * silently and starts a fresh session rather than showing the resume prompt.
+ *
+ * A draft with neither timestamp is treated as stale: it predates both fields,
+ * so there is no way to tell whose it is, and guessing wrong contaminates data.
+ */
+export function isDraftStale(draft: LocalDraft, nowMs: number = Date.now()): boolean {
+  const last = draft.updatedAtMs ?? draft.startedAtMs;
+  if (typeof last !== 'number' || !Number.isFinite(last)) return true;
+  return nowMs - last > DRAFT_STALE_AFTER_MS;
+}
 
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -119,7 +155,10 @@ export async function loadDraft(): Promise<LocalDraft | null> {
 }
 
 export async function saveDraft(draft: LocalDraft): Promise<void> {
-  await withStore<IDBValidKey>('readwrite', (s) => s.put(draft, SINGLETON_KEY));
+  // Stamped here rather than at each call site so no future caller can persist
+  // a draft without refreshing its resume window.
+  const stamped: LocalDraft = { ...draft, updatedAtMs: Date.now() };
+  await withStore<IDBValidKey>('readwrite', (s) => s.put(stamped, SINGLETON_KEY));
 }
 
 export async function clearDraft(): Promise<void> {
@@ -131,6 +170,7 @@ export function newEmptyDraft(sessionId: string, assignedCode: string): LocalDra
     sessionId,
     assignedCode,
     startedAtMs: Date.now(),
+    updatedAtMs: Date.now(),
     classGrade: null,
     background: { ageYears: null, gender: null, homeArea: null },
     consent: {

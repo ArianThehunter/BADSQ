@@ -24,6 +24,7 @@ import {
   newEmptyDraft,
   allAnswered,
   hasRealAnswer,
+  isDraftStale,
   type LocalDraft,
   type ResponseDraft,
   type BackgroundInfo,
@@ -45,6 +46,7 @@ type Phase =
   | 'loading'
   | 'no-items'
   | 'resume-prompt'
+  | 'resume-verify'
   | 'onboarding'
   | 'background-info'
   | 'consent-questions'
@@ -349,7 +351,15 @@ export default function TestRunner() {
         // A draft only exists once start_session() has run, so its presence
         // already means "this browser has a session in flight"; reusing it is
         // strictly better than starting another.
-        if (existing) {
+        // A draft that has sat untouched past the resume window is almost
+        // certainly the PREVIOUS participant's, not this one's -- on a shared
+        // or re-handed device that is exactly how Student A's session leaks
+        // into Student B's data. Discard it without ever offering the choice,
+        // so contamination does not depend on a child reading the prompt.
+        if (existing && isDraftStale(existing)) {
+          await clearDraft();
+          await beginFreshSession();
+        } else if (existing) {
           draftRef.current = existing;
           setDraft(existing);
           setPhase('resume-prompt');
@@ -416,7 +426,63 @@ export default function TestRunner() {
     return c.q1DoctorEval !== null && c.q2ExtraPrimarySupport !== null && c.q3FamilyHistory !== null;
   }
 
-  async function handleResumeYes() {
+  /**
+   * "Continue" does NOT resume straight away. It first asks back one or two of
+   * the background answers already sitting in the draft, and only resumes on a
+   * match.
+   *
+   * The failure this guards is a device handed from one student to the next
+   * inside the resume window: without a check, a single mistaken tap appends
+   * Student B's answers to Student A's session, and nothing downstream can
+   * separate them again. Re-asking class and gender is not proof of identity --
+   * two classmates of the same gender still collide -- but it turns a one-tap
+   * mistake into a deliberate one, and costs a genuine resumer two taps.
+   *
+   * Only fields the draft actually has are checked. A student interrupted
+   * during onboarding, before answering anything, has nothing to verify
+   * against and nothing yet worth contaminating, so they resume directly.
+   */
+  function handleResumeYes() {
+    const d = draftRef.current;
+    if (!d) return;
+    if (d.classGrade != null) {
+      setVerifyStep('class');
+      setPhase('resume-verify');
+      return;
+    }
+    if (d.background.gender != null) {
+      setVerifyStep('gender');
+      setPhase('resume-verify');
+      return;
+    }
+    proceedWithResume();
+  }
+
+  function handleVerifyClass(grade: 6 | 7 | 8) {
+    const d = draftRef.current;
+    if (!d) return;
+    if (grade !== d.classGrade) {
+      void handleResumeNo();
+      return;
+    }
+    if (d.background.gender != null) {
+      setVerifyStep('gender');
+      return;
+    }
+    proceedWithResume();
+  }
+
+  function handleVerifyGender(gender: NonNullable<BackgroundInfo['gender']>) {
+    const d = draftRef.current;
+    if (!d) return;
+    if (gender !== d.background.gender) {
+      void handleResumeNo();
+      return;
+    }
+    proceedWithResume();
+  }
+
+  function proceedWithResume() {
     const d = draftRef.current;
     if (!d) return;
     // Land them where they actually stopped. A draft with nothing filled in
@@ -451,6 +517,9 @@ export default function TestRunner() {
     if (phase === 'resume-prompt') {
       speak('আপনি কি আপনার আগের সেশন চালিয়ে যেতে চান, নাকি এটি একজন ভিন্ন শিক্ষার্থী?');
     }
+    if (phase === 'resume-verify') {
+      speak('চালিয়ে যাওয়ার আগে তোমার তথ্যটি আবার নিশ্চিত করো।');
+    }
   }, [phase]);
 
   // ---------------------------------------------------- background info
@@ -458,6 +527,8 @@ export default function TestRunner() {
   // fields (see design doc), not test responses, so nothing about the timing
   // of answering them is recorded.
   const [bgStep, setBgStep] = useState<'age' | 'class' | 'gender' | 'home_area'>('age');
+  /** Which background answer the resume identity check is currently asking back. */
+  const [verifyStep, setVerifyStep] = useState<'class' | 'gender'>('class');
 
   function patchBackground(patch: Partial<BackgroundInfo>) {
     if (!draftRef.current) return;
@@ -758,15 +829,11 @@ export default function TestRunner() {
             (Is this you continuing your earlier session, or a different student? A shared device
             never resumes automatically.)
           </p>
+          {/* "New student" is deliberately first and visually primary: it is
+              the safe answer, it is the correct answer on any shared device,
+              and it is what a child taps reflexively. Continuing someone
+              else's session is the one that should take deliberate intent. */}
           <div className="big-choice-row">
-            <button
-              type="button"
-              className="big-choice-button"
-              onPointerDown={() => void handleResumeYes()}
-              onClick={onKeyboardActivate(() => void handleResumeYes())}
-            >
-              হ্যাঁ, চালিয়ে যাব
-            </button>
             <button
               type="button"
               className="big-choice-button"
@@ -775,7 +842,79 @@ export default function TestRunner() {
             >
               না, নতুন শিক্ষার্থী
             </button>
+            <button
+              type="button"
+              className="big-choice-button secondary"
+              onPointerDown={() => handleResumeYes()}
+              onClick={onKeyboardActivate(() => handleResumeYes())}
+            >
+              হ্যাঁ, চালিয়ে যাব
+            </button>
           </div>
+        </div>
+      </main>
+    );
+  }
+
+  if (phase === 'resume-verify' && draft) {
+    return (
+      <main className="runner-shell resume-prompt">
+        <div className="tr-card">
+          {verifyStep === 'class' && (
+            <>
+              <h1 lang="bn">তোমার শ্রেণি কত?</h1>
+              <p className="muted small">
+                (Confirm your class to continue your earlier session.)
+              </p>
+              <div className="big-choice-row">
+                {[6, 7, 8].map((g) => (
+                  <button
+                    key={g}
+                    type="button"
+                    className="big-choice-button"
+                    onPointerDown={() => handleVerifyClass(g as 6 | 7 | 8)}
+                    onClick={onKeyboardActivate(() => handleVerifyClass(g as 6 | 7 | 8))}
+                  >
+                    {g}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+          {verifyStep === 'gender' && (
+            <>
+              <h1 lang="bn">তুমি কি ছেলে, মেয়ে, নাকি বলতে চাও না?</h1>
+              <p className="muted small">
+                (Confirm this to continue your earlier session.)
+              </p>
+              <div className="big-choice-row">
+                <button
+                  type="button"
+                  className="big-choice-button"
+                  onPointerDown={() => handleVerifyGender('boy')}
+                  onClick={onKeyboardActivate(() => handleVerifyGender('boy'))}
+                >
+                  ছেলে
+                </button>
+                <button
+                  type="button"
+                  className="big-choice-button"
+                  onPointerDown={() => handleVerifyGender('girl')}
+                  onClick={onKeyboardActivate(() => handleVerifyGender('girl'))}
+                >
+                  মেয়ে
+                </button>
+                <button
+                  type="button"
+                  className="big-choice-button"
+                  onPointerDown={() => handleVerifyGender('prefer_not_to_say')}
+                  onClick={onKeyboardActivate(() => handleVerifyGender('prefer_not_to_say'))}
+                >
+                  বলতে চাই না
+                </button>
+              </div>
+            </>
+          )}
         </div>
       </main>
     );
