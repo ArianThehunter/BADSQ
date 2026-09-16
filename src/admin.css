@@ -270,6 +270,38 @@ button.primary:hover:not(:disabled) {
   background: #1740b0;
 }
 
+/* #b3261e computes to 6.53:1 against white both as text and behind white text,
+   so the quiet and armed variants both clear WCAG 2.2 AA (1.4.3) without a
+   second colour. */
+button.danger {
+  color: #b3261e;
+  background: #fff;
+  border-color: #b3261e;
+}
+
+button.danger:hover:not(:disabled) {
+  background: #fdf2f1;
+}
+
+button.danger-armed {
+  color: #fff;
+  background: #b3261e;
+  border-color: #b3261e;
+}
+
+button.danger-armed:hover:not(:disabled) {
+  background: #8f1e18;
+}
+
+.delete-confirm {
+  padding: 0.75rem 0.5rem;
+}
+
+.delete-confirm input {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  margin-right: 0.5rem;
+}
+
 fieldset {
   margin: 1rem 0;
   padding: 0.875rem 1rem 1rem;

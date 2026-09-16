@@ -552,6 +552,44 @@ export async function listParticipants(): Promise<ParticipantRow[]> {
   });
 }
 
+export type ParticipantDeletionResult = {
+  /** Audio objects the Storage API confirmed it removed. */
+  audioDeleted: number;
+  /** Rows were deleted but these files survived — they are now unreferenced. */
+  audioFailed: number;
+};
+
+/**
+ * Permanently delete one participant and everything derived from their session.
+ *
+ * Two steps, in this order and not the other way round. The RPC removes the
+ * database rows and RETURNS the storage paths it just orphaned; only then are
+ * the files removed. Deleting files first would, on a mid-way failure, leave
+ * rows pointing at recordings that no longer exist — a participant who looks
+ * intact until someone presses play. This way a mid-way failure leaves
+ * unreferenced files instead, which are harmless and findable.
+ *
+ * Authorisation is enforced inside the RPC, not here: participants are
+ * `authenticated` too, so nothing about the client's role is a guard.
+ */
+export async function deleteParticipant(participantId: string): Promise<ParticipantDeletionResult> {
+  const { data, error } = await supabase.rpc('delete_participant_cascade', {
+    p_participant_id: participantId,
+  });
+  if (error) fail('Could not delete this participant', error);
+
+  const paths = data ?? [];
+  if (paths.length === 0) return { audioDeleted: 0, audioFailed: 0 };
+
+  const { data: removed, error: removeErr } = await supabase.storage.from(AUDIO_BUCKET).remove(paths);
+  // The rows are already gone, so a storage failure must not read as "nothing
+  // happened" — report it as surviving files rather than throwing it all away.
+  if (removeErr) return { audioDeleted: 0, audioFailed: paths.length };
+
+  const confirmed = (removed ?? []).length;
+  return { audioDeleted: confirmed, audioFailed: paths.length - confirmed };
+}
+
 // ---------------------------------------------------------------- health
 
 export type HealthSummary = {

@@ -885,6 +885,10 @@ export type Database = {
     Functions: {
       can_manage_items: { Args: never; Returns: boolean }
       can_rate: { Args: never; Returns: boolean }
+      delete_participant_cascade: {
+        Args: { p_participant_id: string }
+        Returns: string[]
+      }
       generate_participant_code: { Args: never; Returns: string }
       is_researcher: { Args: never; Returns: boolean }
       reliability_subsample_rate: { Args: never; Returns: number }

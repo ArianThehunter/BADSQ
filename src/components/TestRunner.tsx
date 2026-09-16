@@ -57,6 +57,10 @@ type Phase =
   | 'ready-to-submit'
   | 'submitting'
   | 'submit-error'
+  // A finished session found on disk that never reached the server. Distinct
+  // from 'resume-prompt': there is nothing left to answer, and the draft must
+  // NOT be offered for discard the way an in-progress one is.
+  | 'submit-recovery'
   | 'complete';
 
 /** Shown once at a *domain* transition (not every subdomain change), always
@@ -254,6 +258,23 @@ export default function TestRunner() {
     return () => document.body.classList.remove('badsq-test-mode');
   }, []);
 
+  // Connectivity, for the submit/recovery screens only. Nothing mid-test needs
+  // it: the test makes no network calls between start_session() and submit, so
+  // a drop during an item is invisible and must stay that way. navigator.onLine
+  // only proves the device has *a* network, not that Supabase is reachable, so
+  // it is used to word the advice, never to gate the retry button.
+  const [isOnline, setIsOnline] = useState(() => navigator.onLine !== false);
+  useEffect(() => {
+    const goOnline = () => setIsOnline(true);
+    const goOffline = () => setIsOnline(false);
+    window.addEventListener('online', goOnline);
+    window.addEventListener('offline', goOffline);
+    return () => {
+      window.removeEventListener('online', goOnline);
+      window.removeEventListener('offline', goOffline);
+    };
+  }, []);
+
   const setAndPersistDraft = useCallback((next: LocalDraft): Promise<void> => {
     draftRef.current = next;
     setDraft(next);
@@ -362,7 +383,15 @@ export default function TestRunner() {
         // or re-handed device that is exactly how Student A's session leaks
         // into Student B's data. Discard it without ever offering the choice,
         // so contamination does not depend on a child reading the prompt.
-        if (existing && isDraftStale(existing)) {
+        if (existing?.sealedAtMs != null) {
+          // A COMPLETED session that never reached the server. It must not go
+          // through the resume prompt: "a different student" there calls
+          // clearDraft(), which would destroy finished data that only exists
+          // on this device. The only offered action is to send it again.
+          draftRef.current = existing;
+          setDraft(existing);
+          setPhase('submit-recovery');
+        } else if (existing && isDraftStale(existing)) {
           await clearDraft();
           await beginFreshSession();
         } else if (existing) {
@@ -749,6 +778,12 @@ export default function TestRunner() {
     setPhase('submitting');
     setError(null);
     try {
+      // Seal BEFORE any upload work begins. From this point the draft is a
+      // finished session awaiting upload rather than a test in flight, and it
+      // has to outlive the 3-minute resume window until it actually lands.
+      if (draftRef.current.sealedAtMs == null) {
+        await setAndPersistDraft({ ...draftRef.current, sealedAtMs: Date.now() });
+      }
       const d = draftRef.current;
       const responsesPayload = [];
       for (const item of items) {
@@ -1279,11 +1314,23 @@ export default function TestRunner() {
               12-year-old is reading. */}
           <p className="error" lang="bn">
             তোমার উত্তর পাঠাতে সমস্যা হয়েছে। চিন্তা করো না — তোমার সব উত্তর এই ডিভাইসেই
-            জমা আছে, কিছুই হারায়নি। আবার চেষ্টা করো।
+            জমা আছে, কিছুই হারায়নি।
           </p>
+          {isOnline ? (
+            <p className="small" lang="bn">
+              ইন্টারনেট সংযোগ ফিরে এসেছে। নিচের বোতামে আবার চাপ দাও। কাজ না হলে এই পেজটি
+              রিফ্রেশ করো — রিফ্রেশ করলেও তোমার উত্তর মুছে যাবে না।
+            </p>
+          ) : (
+            <p className="small" lang="bn">
+              ইন্টারনেট সংযোগ নেই। ওয়াই-ফাই বা মোবাইল ডেটা আবার চালু করো, তারপর নিচের
+              বোতামে চাপ দাও। সংযোগ ফিরে এলে এই পেজটি রিফ্রেশ করলেও চলবে।
+            </p>
+          )}
           <p className="muted small" lang="en">
             Could not send the answers: {error}. They are still saved on this device — nothing
-            has been lost. Tell your teacher if this keeps happening.
+            has been lost, and refreshing this tab is safe. Once the connection is back, press
+            the button again or reload the page. Tell your teacher if this keeps happening.
           </p>
           <button
             type="button"
@@ -1293,6 +1340,45 @@ export default function TestRunner() {
           >
             আবার জমা দাও <span lang="en">(Try again)</span>
           </button>
+        </div>
+      </main>
+    );
+  }
+
+  // A finished session found on disk at load time that never reached the
+  // server. Deliberately offers no "discard" path: this data exists nowhere
+  // else, so the only way out is a successful submit.
+  if (phase === 'submit-recovery') {
+    return (
+      <main className="runner-shell">
+        <div className="tr-card">
+          <h1 lang="bn">একটি পরীক্ষা পাঠানো বাকি আছে</h1>
+          <p lang="bn">
+            এই ডিভাইসে আগের একটি সম্পূর্ণ পরীক্ষা জমা আছে, যেটি এখনো পাঠানো যায়নি।
+            কিছুই হারায়নি।
+          </p>
+          {isOnline ? (
+            <p className="small" lang="bn">
+              ইন্টারনেট সংযোগ আছে। এখন পাঠাতে নিচের বোতামে চাপ দাও।
+            </p>
+          ) : (
+            <p className="error" lang="bn">
+              ইন্টারনেট সংযোগ নেই। ওয়াই-ফাই বা মোবাইল ডেটা চালু করে নিচের বোতামে চাপ দাও।
+            </p>
+          )}
+          <button
+            type="button"
+            className="big-choice-button primary"
+            onPointerDown={() => void handleSubmit()}
+            onClick={onKeyboardActivate(() => void handleSubmit())}
+          >
+            এখন পাঠাও
+          </button>
+          <p className="muted small" lang="en">
+            A completed session is saved on this device and was never uploaded. Press the button
+            to send it. Do not clear this site&apos;s browser data, and do not use private
+            browsing, until it succeeds.
+          </p>
         </div>
       </main>
     );
@@ -1817,7 +1903,7 @@ function ItemScreen({
         onPointerDown={handleNext}
         onClick={onKeyboardActivate(handleNext)}
       >
-        {demoRevealPending ? 'উত্তর দেখুন <span lang="en">(Check)</span>' : 'পরবর্তী <span lang="en">(Next)</span>'}
+        {demoRevealPending ? 'উত্তর দেখুন' : 'পরবর্তী'}
       </button>
 
       {/* A greyed Next on a freshly-loaded item reads as "stuck" unless it

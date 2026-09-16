@@ -16,7 +16,13 @@
 
 import { Fragment, useCallback, useEffect, useState } from 'react';
 import type { ResearcherProfile } from '../lib/supabaseClient';
-import { listParticipants, listRecordings, type ParticipantRow, type RatingQueueRow } from '../lib/adminData';
+import {
+  listParticipants,
+  listRecordings,
+  deleteParticipant,
+  type ParticipantRow,
+  type RatingQueueRow,
+} from '../lib/adminData';
 import RecordingCard from './RecordingCard';
 
 type RecState = { status: 'loading' } | { status: 'error'; message: string } | { status: 'ready'; rows: RatingQueueRow[] };
@@ -33,6 +39,19 @@ export default function ParticipantsView({ profile }: { profile: ResearcherProfi
   const [error, setError] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [recordings, setRecordings] = useState<Record<string, RecState>>({});
+
+  // Deletion is armed by typing the participant's own code, not by a generic
+  // "are you sure?". The roster is a wall of near-identical BADSQ-XXXX-XXXX
+  // rows; a misplaced click on a modal is exactly how the wrong session gets
+  // destroyed, and there is no undo behind this button.
+  const [pendingDelete, setPendingDelete] = useState<ParticipantRow | null>(null);
+  const [confirmText, setConfirmText] = useState('');
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  const canDelete = profile.can_manage_items;
+  const colCount = canDelete ? 9 : 8;
 
   const loadRoster = useCallback(async () => {
     try {
@@ -80,6 +99,29 @@ export default function ParticipantsView({ profile }: { profile: ResearcherProfi
     [loadRecordings, loadRoster],
   );
 
+  async function confirmDelete() {
+    if (!pendingDelete) return;
+    const target = pendingDelete;
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      const res = await deleteParticipant(target.id);
+      setNotice(
+        res.audioFailed > 0
+          ? `Deleted ${target.anonymizedCode}. ${res.audioDeleted} audio file(s) removed; ${res.audioFailed} could not be removed from storage and are now unreferenced.`
+          : `Deleted ${target.anonymizedCode} and ${res.audioDeleted} audio file(s).`,
+      );
+      setPendingDelete(null);
+      setConfirmText('');
+      if (expandedId === target.id) setExpandedId(null);
+      await loadRoster();
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   return (
     <div>
       <div className="row-between">
@@ -89,6 +131,7 @@ export default function ParticipantsView({ profile }: { profile: ResearcherProfi
       <p className="small muted">Select a participant to play and rate their audio recordings.</p>
 
       {error && <div className="notice notice-error">{error}</div>}
+      {notice && <div className="notice notice-ok">{notice}</div>}
 
       {rows === null ? (
         <p className="muted">Loading…</p>
@@ -107,6 +150,7 @@ export default function ParticipantsView({ profile }: { profile: ResearcherProfi
                 <th>Responses</th>
                 <th>Recordings</th>
                 <th>Completed</th>
+                {canDelete && <th>Delete</th>}
               </tr>
             </thead>
             <tbody>
@@ -148,11 +192,29 @@ export default function ParticipantsView({ profile }: { profile: ResearcherProfi
                         )}
                       </td>
                       <td className="small muted">{new Date(p.createdAt).toLocaleString()}</td>
+                      {canDelete && (
+                        <td>
+                          <button
+                            type="button"
+                            className="danger"
+                            // The row itself toggles the recordings drawer.
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setPendingDelete(p);
+                              setConfirmText('');
+                              setDeleteError(null);
+                              setNotice(null);
+                            }}
+                          >
+                            Delete
+                          </button>
+                        </td>
+                      )}
                     </tr>
 
                     {open && (
                       <tr className="row-detail">
-                        <td colSpan={8}>
+                        <td colSpan={colCount}>
                           {!rec || rec.status === 'loading' ? (
                             <p className="muted small">Loading recordings…</p>
                           ) : rec.status === 'error' ? (
@@ -176,6 +238,52 @@ export default function ParticipantsView({ profile }: { profile: ResearcherProfi
                               ))}
                             </div>
                           )}
+                        </td>
+                      </tr>
+                    )}
+
+                    {canDelete && pendingDelete?.id === p.id && (
+                      <tr className="row-detail">
+                        <td colSpan={colCount}>
+                          <div className="delete-confirm">
+                            <p className="small">
+                              This permanently deletes <code>{p.anonymizedCode}</code> — the participant
+                              row, their session, all {p.responseCount} responses, their consent answers,
+                              and all {p.recordingCount} audio recording(s) including any ratings already
+                              given. <strong>There is no undo.</strong>
+                            </p>
+                            <p className="small muted">
+                              Type <code>{p.anonymizedCode}</code> to confirm.
+                            </p>
+                            {deleteError && <div className="notice notice-error">{deleteError}</div>}
+                            <input
+                              value={confirmText}
+                              autoComplete="off"
+                              spellCheck={false}
+                              aria-label={`Type ${p.anonymizedCode} to confirm deletion`}
+                              placeholder="BADSQ-XXXX-XXXX"
+                              onChange={(e) => setConfirmText(e.target.value)}
+                            />
+                            <button
+                              type="button"
+                              className="danger-armed"
+                              disabled={deleting || confirmText.trim() !== p.anonymizedCode}
+                              onClick={() => void confirmDelete()}
+                            >
+                              {deleting ? 'Deleting…' : 'Delete permanently'}
+                            </button>{' '}
+                            <button
+                              type="button"
+                              disabled={deleting}
+                              onClick={() => {
+                                setPendingDelete(null);
+                                setConfirmText('');
+                                setDeleteError(null);
+                              }}
+                            >
+                              Cancel
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     )}

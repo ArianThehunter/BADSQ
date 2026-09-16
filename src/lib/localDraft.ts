@@ -101,6 +101,12 @@ export type LocalDraft = {
    * isDraftStale() falls back to startedAtMs for those.
    */
   updatedAtMs?: number;
+  /**
+   * Stamped the moment a submit is first attempted, i.e. when the draft stops
+   * being "a test in progress" and becomes "a finished session awaiting
+   * upload". Exempts the draft from the resume window — see isDraftStale().
+   */
+  sealedAtMs?: number;
   classGrade: 6 | 7 | 8 | null;
   background: BackgroundInfo;
   consent: ConsentAnswers;
@@ -143,6 +149,21 @@ export const DRAFT_STALE_AFTER_MS = 3 * 60 * 1000;
  * so there is no way to tell whose it is, and guessing wrong contaminates data.
  */
 export function isDraftStale(draft: LocalDraft, nowMs: number = Date.now()): boolean {
+  // A SEALED draft never expires. The window above exists to stop Student B
+  // being offered Student A's half-finished test on a shared device; a sealed
+  // draft is not that. It is a COMPLETE session whose upload failed, and no
+  // further answers can be added to it -- the only action it offers is "send
+  // again", so there is nothing for a second student to contaminate.
+  //
+  // Expiring it was a real data-loss bug: a submit that failed (no signal in
+  // the exam room is the usual cause) left the draft intact, exactly as the
+  // submit-error screen promises the child it does -- and then this function
+  // threw it away three minutes later, silently, on the next load. A full
+  // 30-40 minute session including all 17 recordings was lost that way, with
+  // nothing server-side to recover from because nothing is written until
+  // submit_session() succeeds.
+  if (typeof draft.sealedAtMs === 'number' && Number.isFinite(draft.sealedAtMs)) return false;
+
   const last = draft.updatedAtMs ?? draft.startedAtMs;
   if (typeof last !== 'number' || !Number.isFinite(last)) return true;
   return nowMs - last > DRAFT_STALE_AFTER_MS;
