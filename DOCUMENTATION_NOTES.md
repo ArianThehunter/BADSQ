@@ -58,6 +58,29 @@ Both are fixed, and the teardown now asserts that it worked. Also fixed: two ass
 every row in `public_items` and expected 8, which was true only while the real item bank was
 empty — they were measuring the item bank rather than the view's `active` filter.
 
+### Accessibility audit (2026-09-16) — and a correction to it
+
+A WCAG 2.2 Level AA audit of the participant interface produced two findings worth recording here
+rather than only in `ACCESSIBILITY.md`:
+
+1. **The first pass under-reported contrast failures.** Four were found by inspecting colour pairs
+   that *looked* risky. Computing every pair arithmetically found **nine**. The three missed
+   included the **Record button at 2.30:1** — the primary control for all 17 spoken items, and so
+   the single most-used control in the instrument as well as its least legible. The lesson is
+   narrow and repeatable: contrast is arithmetic and must be computed exhaustively, never sampled
+   by eye. All nine are now fixed, narrowest margin 5.02:1.
+
+2. **SC 1.2.1 cannot be fixed and is now a documented exclusion.** 57 of 93 items are audio-only;
+   the on-screen text gives the task, never the content. A transcript would convert a listening
+   task into a reading task, so conformance and construct validity are mutually exclusive for
+   ~40 items. Resolved as an eligibility requirement (hearing) rather than a defect, recorded in
+   `RESEARCH_DOCUMENTATION.md` §1.2, §6.4 and §9.8. **This must appear in the ethics application
+   and the parental consent form**; it is not something the code can carry on its own.
+
+Two smaller things the audit surfaced that are not conformance issues but are worth knowing:
+`LetterSpan.tsx` references a `.letter-keys` class that does not exist in any stylesheet (the grid
+inherits `.numeric-keys` entirely), and the `role="progressbar"` has no accessible name.
+
 ### Found since, and fixed
 
 - **`performance.now()` restarts on page reload**, so a participant who resumed carried smaller

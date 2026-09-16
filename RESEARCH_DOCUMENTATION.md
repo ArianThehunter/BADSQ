@@ -39,7 +39,7 @@ the admin panel, so counts can change; the queries that produce them are trivial
 **Revised 2026-09-16**, after a three-device pilot (Android/Chrome, iPhone/Safari, Windows/Edge)
 and a review of the exported files. Four things changed materially: the export now carries the
 answer key and option text (§7), a blind second-rating path now exists so inter-rater agreement
-is collectable (§4.6), audio retention is now deletion at 90 days (§6.4), and one earlier claim
+is collectable (§4.6), audio retention is now deletion at 90 days (§6.5), and one earlier claim
 about missing answer keys was **wrong and is corrected in §4.4**.
 
 ---
@@ -88,9 +88,19 @@ platform does not perform and does not constrain.
   say) and **home area** (urban / rural). Both are self-reported, single-tap, and have no
   "unknown" branch other than the gender opt-out.
 
-No measure of general cognitive ability, hearing, vision, or first-language status is collected.
-The design draft's own pre-build checklist flags the absence of a general cognitive ability
-measure as a limitation to be stated; it is stated here in §9.
+**Exclusion criterion — functional hearing is required.** 57 of the 93 active items deliver
+their content as Bangla audio and as audio only: the on-screen text states the task ("listen to
+the numbers and write them") but never the content, which exists solely in the recording. A
+participant who cannot hear the audio cannot answer any of those items. Hearing is therefore a
+**participation requirement**, and deaf or hard-of-hearing children are outside the population
+this instrument can assess. See §6.4 for the ethics consequences and §9.8 for why this cannot be
+remedied by adding transcripts.
+
+No measure of general cognitive ability, hearing, vision, or first-language status is collected —
+note that hearing is an eligibility requirement (above) but is **not screened for**, so
+enrolment relies on the supervising adult knowing the child can hear the audio. The design
+draft's own pre-build checklist flags the absence of a general cognitive ability measure as a
+limitation to be stated; it is stated here in §9.
 
 ### 1.3 Structure — five domains plus a criterion block
 
@@ -536,7 +546,7 @@ Both verdicts reach the export as `audio_review_verdict` and `audio_second_verdi
 three categories. **The platform does not compute agreement** — that is an analysis step, and
 three-category agreement is yours to compute from those two columns.
 
-One consequence to plan around: audio is destroyed 90 days after upload (§6.4), so **both rating
+One consequence to plan around: audio is destroyed 90 days after upload (§6.5), so **both rating
 passes must be completed within 90 days of a participant's session.** A recording deleted before
 it is rated is data lost permanently, because the rating is the only thing that outlives the file.
 
@@ -751,7 +761,26 @@ checklist item.
   participant's IP address is disclosed to a third party. **[verified]**, and it should be
   preserved through any future change.
 
-### 6.4 Audio retention — 90 days
+### 6.4 Hearing as an eligibility requirement
+
+The instrument cannot be administered to a deaf or hard-of-hearing child (§1.2). This has three
+consequences that belong in study documentation rather than in code:
+
+1. **Ethics application** — participation requires functional hearing, and this should be
+   recorded as a stated inclusion/exclusion criterion rather than left implicit.
+2. **Parental consent form** — parents should know the requirement before enrolling, so that a
+   child is not brought to a session they cannot complete.
+3. **Limitations and any conformance statement** — the instrument does not meet WCAG 2.2
+   Success Criterion 1.2.1 (Audio-only, Prerecorded), and cannot without invalidating what it
+   measures (§9.8). Any accessibility claim must state this exception rather than omit it.
+
+This is a documented boundary of the instrument, not a defect awaiting a fix. It is worth stating
+plainly that the audio-first design was **itself** an accessibility decision — it removes reading
+ability as a confound, which is the correct choice for a dyslexia screener and directly benefits
+the population under study. It helps one group and excludes another, and both halves of that
+trade-off should be reported.
+
+### 6.5 Audio retention — 90 days
 
 Audio recordings of children's voices are the most sensitive data the study holds.
 
@@ -1047,14 +1076,43 @@ for a research audience:
   expect to have to justify using them at all before you have your own data.
 - **"How do you know a child heard the stimulus?"** You do not, directly. You know how many times
   they played it and whether playback failed.
+- **"Your instrument is unusable by deaf participants."** Correct, and stated rather than
+  defended: hearing is an explicit eligibility requirement (§1.2, §6.4) and the reason it cannot
+  be designed away is set out in §9.8.
 
-### 9.8 Summary of open items before data collection
+### 9.8 Hearing requirement, and why it cannot be designed away
+
+The instrument delivers 57 of its 93 active items as audio only. This excludes deaf and
+hard-of-hearing participants absolutely — not partially, not with difficulty, but completely:
+there is no item among those 57 they could answer.
+
+**The obvious remedy does not work.** Displaying a transcript would defeat the measurement. Printing
+the digit string on screen converts a listening-span task into a reading task; showing the rhyme
+pair converts a phonological judgement into an orthographic one. For roughly 40 of the 57 items,
+conforming to WCAG 1.2.1 and measuring the intended construct are **mutually exclusive**. The
+remaining items — where the audio is only an instruction and the content is already on screen —
+could carry transcripts, but fixing a subset would leave the instrument unusable anyway.
+
+Three options existed. They are recorded here so the choice is visible rather than implied:
+
+| Option | Consequence |
+|---|---|
+| Add transcripts throughout | Destroys construct validity for ~40 items. Rejected. |
+| **Document a hearing requirement and exclude the population** | The instrument stays valid; the excluded group is named openly. **Chosen.** |
+| Build a separate non-audio parallel form | A different instrument requiring its own validation and norms. A future study, not a remedy. |
+
+Audio-based cognitive instruments commonly carry a hearing requirement, so this is a conventional
+position — but it must be **stated**, not assumed. A conformance claim for this instrument reads:
+*WCAG 2.2 Level AA is met except SC 1.2.1, which cannot be satisfied without invalidating the
+construct; the affected population is an explicit exclusion criterion.*
+
+### 9.9 Summary of open items before data collection
 
 Still open, and all of them research-team decisions rather than software work:
 
 1. **Recover or write the Development Report** (§2). Without it the instrument's theoretical
    grounding, the criterion rule and the domain weights cannot be documented at all.
-2. **Make the consent form match the system** (§6.4): 90-day deletion of audio, indefinite
+2. **Make the consent form match the system** (§6.5): 90-day deletion of audio, indefinite
    retention of the derived data. The repository does not contain the form and cannot check.
 3. **Decide and state the post-submission withdrawal policy** (§6.1). Full anonymity means there
    is currently no route to withdraw after submitting.

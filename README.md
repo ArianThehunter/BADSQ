@@ -15,6 +15,7 @@ Three documents describe the system in depth, and are more current than this fil
 | [TECHNICAL_DOCUMENTATION.md](TECHNICAL_DOCUMENTATION.md) | A developer inheriting the codebase |
 | [RESEARCH_DOCUMENTATION.md](RESEARCH_DOCUMENTATION.md) | A researcher evaluating or replicating the instrument |
 | [DOCUMENTATION_NOTES.md](DOCUMENTATION_NOTES.md) | What could not be documented, conflicts found, open problems |
+| [ACCESSIBILITY.md](ACCESSIBILITY.md) | WCAG 2.2 Level AA conformance statement, with its one stated exception |
 
 The `PHASE_*.md` reports are a historical record of the build, not a description of the current
 system. Where they disagree with the code, the code is correct.
@@ -31,6 +32,15 @@ incorrect for any format — `responses.is_correct` is always NULL. The only jud
 anywhere is a researcher's verdict on a spoken recording, and that lives on the recording,
 attributed to the rater. Scoring, norming and classification are downstream analysis that this
 platform deliberately does not perform.
+
+## Accessibility posture
+
+The participant interface conforms to **WCAG 2.2 Level AA with one stated exception**: SC 1.2.1
+(Audio-only), which cannot be met without invalidating the measurement. 57 of the 93 items deliver
+their content as audio only, so **functional hearing is an eligibility requirement** and deaf or
+hard-of-hearing children are outside the population this instrument can assess. That exclusion
+belongs in the ethics application and the consent form — see
+[ACCESSIBILITY.md](ACCESSIBILITY.md) and `RESEARCH_DOCUMENTATION.md` §1.2, §6.4, §9.8.
 
 ## Privacy posture
 
