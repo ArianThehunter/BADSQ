@@ -1270,10 +1270,20 @@ export default function TestRunner() {
     return (
       <main className="runner-shell">
         <div className="tr-card">
-          <h1 lang="en">Not yet submitted</h1>
-          <p className="error" lang="en">
-            Something went wrong sending your answers: {error}. Your answers are still saved on
-            this device — nothing has been lost. Try again.
+          <h1 lang="bn">এখনো জমা হয়নি</h1>
+          {/* The child is the one who has to act on this screen, so the
+              reassurance and the instruction are in Bangla. The raw error
+              string below is for the supervising teacher or researcher --
+              it is a technical message, usually English, and is kept
+              separate rather than dropped into the middle of a sentence a
+              12-year-old is reading. */}
+          <p className="error" lang="bn">
+            তোমার উত্তর পাঠাতে সমস্যা হয়েছে। চিন্তা করো না — তোমার সব উত্তর এই ডিভাইসেই
+            জমা আছে, কিছুই হারায়নি। আবার চেষ্টা করো।
+          </p>
+          <p className="muted small" lang="en">
+            Could not send the answers: {error}. They are still saved on this device — nothing
+            has been lost. Tell your teacher if this keeps happening.
           </p>
           <button
             type="button"
@@ -1281,7 +1291,7 @@ export default function TestRunner() {
             onPointerDown={() => void handleSubmit()}
             onClick={onKeyboardActivate(() => void handleSubmit())}
           >
-            <span lang="en">Try submitting again</span>
+            আবার জমা দাও <span lang="en">(Try again)</span>
           </button>
         </div>
       </main>
@@ -1313,7 +1323,10 @@ export default function TestRunner() {
   return (
     <main className="runner-shell">
       <div className="tr-card">
-        <h1 lang="en">Something went wrong</h1>
+        <h1 lang="bn">কিছু একটা সমস্যা হয়েছে</h1>
+        <p lang="bn">
+          এখান থেকে পরীক্ষা চালিয়ে যাওয়া যাচ্ছে না। শিক্ষককে জানাও, অথবা পেজটি আবার চালু করো।
+        </p>
         <p className="muted small" lang="en">
           The test could not continue from here. Please tell your teacher, or reload the page.
         </p>
