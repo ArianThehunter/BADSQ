@@ -14,7 +14,7 @@ export default function LandingPage() {
         <h1>
           BADSQ <span lang="bn">— বাংলা ডিসলেক্সিয়া স্ক্রিনিং</span>
         </h1>
-        <p className="landing-sub">
+        <p className="landing-sub" lang="en">
           A short, audio-guided screening tool that helps identify early signs of dyslexia in
           Bangla-speaking students aged 12–14.
         </p>
@@ -26,8 +26,8 @@ export default function LandingPage() {
             📝
           </span>
           <h2 lang="bn">শিক্ষার্থী</h2>
-          <p className="muted">Student — start the screening test</p>
-          <span className="landing-card-cta">শুরু করো (Start) →</span>
+          <p className="muted" lang="en">Student — start the screening test</p>
+          <span className="landing-card-cta">শুরু করো <span lang="en">(Start) →</span></span>
         </a>
 
         <a className="landing-card" href="#/admin">
@@ -35,13 +35,13 @@ export default function LandingPage() {
             🔬
           </span>
           <h2 lang="bn">গবেষক</h2>
-          <p className="muted">Researcher — sign in to manage items, ratings, and data</p>
-          <span className="landing-card-cta">Sign in →</span>
+          <p className="muted" lang="en">Researcher — sign in to manage items, ratings, and data</p>
+          <span className="landing-card-cta" lang="en">Sign in →</span>
         </a>
       </div>
 
       <p className="landing-footer">
-        <a href="#/status">System status</a>
+        <a href="#/status" lang="en">System status</a>
       </p>
     </main>
   );

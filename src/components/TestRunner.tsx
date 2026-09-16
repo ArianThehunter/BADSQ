@@ -196,9 +196,9 @@ function AgeStep({ onSubmit }: { onSubmit: (age: number) => void }) {
   return (
     <>
       <h1 lang="bn">তোমার বয়স কত?</h1>
-      <p className="muted small">What is your age, in years?</p>
+      <p className="muted small" lang="en">What is your age, in years?</p>
       <div className="numeric-keypad">
-        <div className="numeric-display" aria-live="polite" aria-label="Typed age">
+        <div className="numeric-display" aria-live="polite" aria-label="টাইপ করা বয়স">
           {value.length > 0 ? value : <span className="numeric-placeholder">—</span>}
         </div>
         <div className="numeric-keys">
@@ -222,7 +222,7 @@ function AgeStep({ onSubmit }: { onSubmit: (age: number) => void }) {
         onPointerDown={() => valid && onSubmit(age)}
         onClick={onKeyboardActivate(() => valid && onSubmit(age))}
       >
-        পরবর্তী (Next)
+        পরবর্তী <span lang="en">(Next)</span>
       </button>
     </>
   );
@@ -844,7 +844,7 @@ export default function TestRunner() {
       <main className="runner-shell">
         <div className="tr-card">
           <h1 lang="bn">এখনো কোনো প্রশ্ন যোগ করা হয়নি</h1>
-          <p className="muted small">
+          <p className="muted small" lang="en">
             No test items are configured yet. Please tell your teacher or the research team.
           </p>
         </div>
@@ -860,7 +860,7 @@ export default function TestRunner() {
           <p lang="bn">
             মনে হচ্ছে একটি অসম্পূর্ণ সেশন আছে। আপনি কি আগের সেশন চালিয়ে যেতে চান, নাকি এটি একজন ভিন্ন শিক্ষার্থী?
           </p>
-          <p className="muted small">
+          <p className="muted small" lang="en">
             (Is this you continuing your earlier session, or a different student? A shared device
             never resumes automatically.)
           </p>
@@ -898,7 +898,7 @@ export default function TestRunner() {
           {verifyStep === 'class' && (
             <>
               <h1 lang="bn">তোমার শ্রেণি কত?</h1>
-              <p className="muted small">
+              <p className="muted small" lang="en">
                 (Confirm your class to continue your earlier session.)
               </p>
               <div className="big-choice-row">
@@ -919,7 +919,7 @@ export default function TestRunner() {
           {verifyStep === 'gender' && (
             <>
               <h1 lang="bn">তুমি কি ছেলে, মেয়ে, নাকি বলতে চাও না?</h1>
-              <p className="muted small">
+              <p className="muted small" lang="en">
                 (Confirm this to continue your earlier session.)
               </p>
               <div className="big-choice-row">
@@ -1003,7 +1003,7 @@ export default function TestRunner() {
             onPointerDown={() => enterItemOrIntro(0)}
             onClick={onKeyboardActivate(() => enterItemOrIntro(0))}
           >
-            চলো শুরু করি (Continue)
+            চলো শুরু করি <span lang="en">(Continue)</span>
           </button>
         </div>
       </main>
@@ -1020,7 +1020,7 @@ export default function TestRunner() {
           {bgStep === 'class' && (
             <>
               <h1 lang="bn">তোমার শ্রেণি কত?</h1>
-              <p className="muted small">What class/grade are you in?</p>
+              <p className="muted small" lang="en">What class/grade are you in?</p>
               <div className="big-choice-row">
                 {[6, 7, 8].map((g) => (
                   <button
@@ -1039,7 +1039,7 @@ export default function TestRunner() {
           {bgStep === 'gender' && (
             <>
               <h1 lang="bn">তুমি কি ছেলে, মেয়ে, নাকি বলতে চাও না?</h1>
-              <p className="muted small">Are you a boy, a girl, or would you rather not say?</p>
+              <p className="muted small" lang="en">Are you a boy, a girl, or would you rather not say?</p>
               <div className="big-choice-row">
                 <button
                   type="button"
@@ -1071,7 +1071,7 @@ export default function TestRunner() {
           {bgStep === 'home_area' && (
             <>
               <h1 lang="bn">তুমি কি শহরে থাকো, নাকি গ্রামে?</h1>
-              <p className="muted small">Do you live in a city (urban) or a village (rural)?</p>
+              <p className="muted small" lang="en">Do you live in a city (urban) or a village (rural)?</p>
               <div className="big-choice-row">
                 <button
                   type="button"
@@ -1106,7 +1106,7 @@ export default function TestRunner() {
               <h1 lang="bn">
                 তোমার পড়া বা লেখায় সমস্যার জন্য কোনো ডাক্তার, মনোবিজ্ঞানী বা বিদ্যালয় কর্তৃক পরীক্ষা করানো হয়েছে?
               </h1>
-              <p className="muted small">
+              <p className="muted small" lang="en">
                 Has your parent told you whether any doctor, psychologist, or school ever tested you
                 for a reading/writing difficulty? Pick what they marked on the paper form.
               </p>
@@ -1131,7 +1131,7 @@ export default function TestRunner() {
               <h1 lang="bn">
                 প্রাথমিক বিদ্যালয়ে (শ্রেণি ১-৫) থাকা অবস্থায় পড়া বা লেখায় সমস্যার জন্য তোমার কি অতিরিক্ত সাহায্য নিতে হয়েছিল?
               </h1>
-              <p className="muted small">
+              <p className="muted small" lang="en">
                 Did you need extra help while in primary school (classes 1-5) because of
                 reading/writing difficulty? Pick what your parent marked.
               </p>
@@ -1153,7 +1153,7 @@ export default function TestRunner() {
               <h1 lang="bn">
                 তোমার পরিবারে (মা, বাবা, ভাই অথবা বোন) কারো পড়তে, বানান বা লিখতে ডিসলেক্সিয়ার ধরনের সমস্যা আছে বা ছিল বলে চিহ্নিত হয়েছে?
               </h1>
-              <p className="muted small">
+              <p className="muted small" lang="en">
                 Has anyone in your family (mother, father, brother, or sister) been identified with a
                 dyslexia-type difficulty? Pick what your parent marked.
               </p>
@@ -1239,7 +1239,7 @@ export default function TestRunner() {
       <main className="runner-shell">
         <div className="tr-card">
           <h1 lang="bn">সব প্রশ্নের উত্তর দেওয়া হয়েছে</h1>
-          <p className="muted small">All items answered. Submit when ready.</p>
+          <p className="muted small" lang="en">All items answered. Submit when ready.</p>
           <button
             type="button"
             className="big-choice-button primary"
@@ -1270,8 +1270,8 @@ export default function TestRunner() {
     return (
       <main className="runner-shell">
         <div className="tr-card">
-          <h1>Not yet submitted</h1>
-          <p className="error">
+          <h1 lang="en">Not yet submitted</h1>
+          <p className="error" lang="en">
             Something went wrong sending your answers: {error}. Your answers are still saved on
             this device — nothing has been lost. Try again.
           </p>
@@ -1281,7 +1281,7 @@ export default function TestRunner() {
             onPointerDown={() => void handleSubmit()}
             onClick={onKeyboardActivate(() => void handleSubmit())}
           >
-            Try submitting again
+            <span lang="en">Try submitting again</span>
           </button>
         </div>
       </main>
@@ -1296,11 +1296,11 @@ export default function TestRunner() {
           <p lang="bn" className="stimulus-text">
             সব শেষ। তুমি খুব ভালো করেছ। অংশগ্রহণ করার জন্য অনেক ধন্যবাদ।
           </p>
-          <p className="muted small">Thank you — your answers have been submitted.</p>
-          <p>Please tell your teacher this code so it can be written on your form:</p>
+          <p className="muted small" lang="en">Thank you — your answers have been submitted.</p>
+          <p lang="en">Please tell your teacher this code so it can be written on your form:</p>
           <p className="assigned-code">{draft.assignedCode}</p>
           <a href="#/" className="big-choice-button primary home-link">
-            হোমে ফিরে যাও (Return home)
+            হোমে ফিরে যাও <span lang="en">(Return home)</span>
           </a>
         </div>
       </main>
@@ -1313,8 +1313,8 @@ export default function TestRunner() {
   return (
     <main className="runner-shell">
       <div className="tr-card">
-        <h1>Something went wrong</h1>
-        <p className="muted small">
+        <h1 lang="en">Something went wrong</h1>
+        <p className="muted small" lang="en">
           The test could not continue from here. Please tell your teacher, or reload the page.
         </p>
       </div>
@@ -1716,7 +1716,7 @@ function ItemScreen({
             onPointerDown={playInstruction}
             onClick={onKeyboardActivate(playInstruction)}
           >
-            🔊 নির্দেশনা শুনুন (Play instructions)
+            🔊 নির্দেশনা শুনুন <span lang="en">(Play instructions)</span>
           </button>
         </div>
       )}
@@ -1731,7 +1731,7 @@ function ItemScreen({
             onPointerDown={playStimulus}
             onClick={onKeyboardActivate(playStimulus)}
           >
-            🔊 প্রশ্নের অডিও শুনুন (Play question)
+            🔊 প্রশ্নের অডিও শুনুন <span lang="en">(Play question)</span>
           </button>
           {!stimulusUnlocked && (
             <span className="small muted" lang="bn">
@@ -1804,7 +1804,7 @@ function ItemScreen({
         onPointerDown={handleNext}
         onClick={onKeyboardActivate(handleNext)}
       >
-        {demoRevealPending ? 'উত্তর দেখুন (Check)' : 'পরবর্তী (Next)'}
+        {demoRevealPending ? 'উত্তর দেখুন <span lang="en">(Check)</span>' : 'পরবর্তী <span lang="en">(Next)</span>'}
       </button>
 
       {/* A greyed Next on a freshly-loaded item reads as "stuck" unless it

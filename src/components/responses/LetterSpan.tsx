@@ -65,7 +65,7 @@ export default function LetterSpan({
 
   return (
     <div className="numeric-keypad">
-      <div className="numeric-display" aria-live="polite" aria-label="Tapped letters" lang="bn">
+      <div className="numeric-display" aria-live="polite" aria-label="টাইপ করা অক্ষর" lang="bn">
         {shown.length > 0 ? shown : <span className="numeric-placeholder">—</span>}
       </div>
       <div className="numeric-keys letter-keys">

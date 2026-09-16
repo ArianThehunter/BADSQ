@@ -59,7 +59,7 @@ export default function NumericKeypad({
 
   return (
     <div className="numeric-keypad">
-      <div className="numeric-display" aria-live="polite" aria-label="Typed digits">
+      <div className="numeric-display" aria-live="polite" aria-label="টাইপ করা সংখ্যা">
         {value && value.length > 0 ? value : <span className="numeric-placeholder">—</span>}
       </div>
       <div className="numeric-keys">

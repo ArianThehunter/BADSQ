@@ -175,7 +175,15 @@ export default function AudioRecord({
           onKeyDown={handleKeyDown}
           onClick={handleClick}
         >
-          {phase === 'requesting' ? 'Starting…' : '● Record'}
+          {phase === 'requesting' ? (
+            <>
+              শুরু হচ্ছে… <span lang="en">(Starting…)</span>
+            </>
+          ) : (
+            <>
+              ● রেকর্ড করো <span lang="en">(Record)</span>
+            </>
+          )}
         </button>
       ) : phase === 'recording' ? (
         <button
@@ -185,7 +193,7 @@ export default function AudioRecord({
           onKeyDown={handleStopKeyDown}
           onClick={handleStopClick}
         >
-          ■ Stop
+          ■ থামাও <span lang="en">(Stop)</span>
         </button>
       ) : (
         <div className="record-result">
@@ -198,7 +206,7 @@ export default function AudioRecord({
             onKeyDown={handleKeyDown}
             onClick={handleClick}
           >
-            ● Record again
+            ● আবার রেকর্ড করো <span lang="en">(Record again)</span>
           </button>
         </div>
       )}
@@ -213,7 +221,7 @@ export default function AudioRecord({
       )}
       {error && <p className="error small">{error}</p>}
       {mimeType && phase === 'recorded' && (
-        <p className="muted small">format: {mimeType}</p>
+        <p className="muted small" lang="en">format: {mimeType}</p>
       )}
     </div>
   );

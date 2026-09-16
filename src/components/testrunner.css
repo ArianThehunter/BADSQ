@@ -22,9 +22,19 @@ body.badsq-test-mode {
   --tr-accent: #6f62e0;
   --tr-accent-dark: #584bd1;
   --tr-accent-soft: #ece9ff;
-  --tr-success: #3fae82;
-  --tr-warm: #ff8a70;
-  --tr-warm-dark: #e56c50;
+  /* WCAG 2.2 SC 1.4.3 (AA) — these carry TEXT or sit under white text, so they
+     are contrast-bound, not free choices. The pale tinted BACKGROUNDS below
+     (rgba fills at 14-16%) are deliberately unchanged: the pastel character
+     lives there, and darkening only the ink preserves it while clearing 4.5:1.
+     Ratios noted are computed against the surface each colour actually meets. */
+  --tr-success: #2a7d5c;        /* white on it: 5.02:1 — solid fill  */
+  --tr-success-text: #1a6449;   /* on the pale green tint: 6.23:1    */
+  --tr-warm: #ff8a70;           /* progress-fill gradient ONLY — decorative,
+                                   never carries text (the "n / 77" beside it
+                                   conveys the same information)     */
+  --tr-warm-strong: #c2410c;    /* white on it: 5.18:1 — record fill */
+  --tr-warm-dark: #a8371c;      /* white on it 6.51:1; as text on the
+                                   peach/blush tints 5.70:1 and 6.03:1 */
   --tr-radius-lg: 1.75rem;
   --tr-radius-md: 1.125rem;
   --tr-shadow-card: 0 12px 32px -8px rgba(90, 76, 190, 0.18);
@@ -42,7 +52,9 @@ body.badsq-test-mode .muted {
   color: var(--tr-muted);
 }
 body.badsq-test-mode .error {
-  color: #d9534f;
+  /* Was #d9534f — 3.96:1 on white, just under the 4.5:1 floor. Matches
+     admin.css's .error now, so both panels use one accessible red. */
+  color: #b3261e;
 }
 
 .runner-shell {
@@ -214,7 +226,7 @@ body.badsq-test-mode .error {
 
 .practice-feedback.correct {
   background: rgba(63, 174, 130, 0.14);
-  color: var(--tr-success);
+  color: var(--tr-success-text);
 }
 
 .practice-feedback.incorrect {
@@ -270,7 +282,7 @@ body.badsq-test-mode .error {
 }
 
 .big-choice-button.primary {
-  background: linear-gradient(135deg, var(--tr-success), #2f9468);
+  background: linear-gradient(135deg, var(--tr-success), #1f6247);
 }
 
 /* De-emphasised variant. Used for "continue someone else's session" on the
@@ -433,10 +445,10 @@ body.badsq-test-mode .error {
   font-weight: 700;
   border: none;
   border-radius: 999px;
-  background: linear-gradient(135deg, var(--tr-warm), var(--tr-warm-dark));
+  background: linear-gradient(135deg, var(--tr-warm-strong), var(--tr-warm-dark));
   color: #fff;
   cursor: pointer;
-  box-shadow: 0 6px 16px -4px rgba(229, 108, 80, 0.45);
+  box-shadow: 0 6px 16px -4px rgba(168, 55, 28, 0.45);
   transition: transform 0.12s ease;
 }
 
@@ -453,13 +465,13 @@ button.record-button.recording {
 
 @keyframes pulse-ring {
   0% {
-    box-shadow: 0 0 0 0 rgba(229, 108, 80, 0.5);
+    box-shadow: 0 0 0 0 rgba(168, 55, 28, 0.5);
   }
   70% {
-    box-shadow: 0 0 0 14px rgba(229, 108, 80, 0);
+    box-shadow: 0 0 0 14px rgba(168, 55, 28, 0);
   }
   100% {
-    box-shadow: 0 0 0 0 rgba(229, 108, 80, 0);
+    box-shadow: 0 0 0 0 rgba(168, 55, 28, 0);
   }
 }
 
