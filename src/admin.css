@@ -293,8 +293,16 @@ button.danger-armed:hover:not(:disabled) {
   background: #8f1e18;
 }
 
+/* Separated from the recordings above it so the destructive control is never
+   the thing a mis-aimed click lands on. */
+.delete-zone {
+  margin-top: 1rem;
+  padding-top: 0.875rem;
+  border-top: 1px solid var(--color-border);
+}
+
 .delete-confirm {
-  padding: 0.75rem 0.5rem;
+  padding: 0.25rem 0;
 }
 
 .delete-confirm input {
